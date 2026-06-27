@@ -1,0 +1,33 @@
+{
+  "name": "nodeproxy",
+  "version": "1.0.0",
+  "description": "Self-discoverable MCP x402 web surface parser for autonomous agents",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/src/index.js",
+    "start:tsx": "node --import tsx src/index.ts",
+    "mcp:stdio": "node --import tsx src/mcp/stdio.ts",
+    "test": "node --import tsx --test test/**/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@hono/node-server": "^1.14.4",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@x402/core": "~2.17.0",
+    "@x402/evm": "~2.17.0",
+    "@x402/extensions": "~2.17.0",
+    "@x402/mcp": "~2.17.0",
+    "hono": "^4.8.3",
+    "jsdom": "^26.1.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^22.15.21",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}

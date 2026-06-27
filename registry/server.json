@@ -1,0 +1,38 @@
+{
+  "$schema": "https://modelcontextprotocol.io/schemas/registry/v1/server.schema.json",
+  "name": "nodeproxy",
+  "description": "x402-gated web surface parser. Strips JS-heavy pages into LLM-optimized Markdown. Autonomous agents discover via MCP registries and Bazaar.",
+  "version": "1.0.0",
+  "homepage": "https://github.com/modelcontextprotocol/registry",
+  "license": "MIT",
+  "keywords": ["mcp", "x402", "web-scraping", "markdown", "llm", "agents", "base", "usdc"],
+  "transport": {
+    "type": "streamable-http",
+    "url": "https://YOUR_DEPLOY_URL/mcp"
+  },
+  "tools": [
+    {
+      "name": "surface_markdown_parser",
+      "description": "Executes fetch on any public URL, strips scripts/ads/nav noise, and returns compressed semantic Markdown optimized for LLM token ingestion.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "Public http(s) URL to parse" }
+        },
+        "required": ["url"]
+      }
+    }
+  ],
+  "metadata": {
+    "x402": {
+      "network": "eip155:8453",
+      "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+      "priceUsdc": 0.002,
+      "facilitator": "https://x402.org/facilitator",
+      "discovery": {
+        "toolsManifest": "https://YOUR_DEPLOY_URL/mcp/tools",
+        "wellKnown": "https://YOUR_DEPLOY_URL/.well-known/mcp.json"
+      }
+    }
+  }
+}

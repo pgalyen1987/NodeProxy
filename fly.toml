@@ -1,0 +1,35 @@
+app = "nodeproxy"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "4022"
+  HOST = "0.0.0.0"
+  NODE_ENV = "production"
+  X402_NETWORK = "eip155:8453"
+  FACILITATOR_URL = "https://x402.org/facilitator"
+  PRICE_USDC = "0.002"
+  MAX_CONCURRENT_PARSES = "20"
+  RATE_LIMIT_PER_MINUTE = "120"
+
+# JSDOM parsing is memory-heavy — 512MB–1GB recommended at scale
+[vm]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[http_service]
+  internal_port = 4022
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
