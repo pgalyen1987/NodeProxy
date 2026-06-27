@@ -42,6 +42,15 @@ function resolvePublicUrl(): string {
   return `http://localhost:${process.env.PORT || '4022'}`;
 }
 
+function resolveFacilitatorUrl(): string {
+  if (process.env.FACILITATOR_URL) return process.env.FACILITATOR_URL;
+  const network = (process.env.X402_NETWORK || 'eip155:84532') as NetworkId;
+  if (network === 'eip155:8453') {
+    return 'https://api.cdp.coinbase.com/platform/v2/x402';
+  }
+  return 'https://x402.org/facilitator';
+}
+
 export const config: AppConfig = {
   port: parseInt(process.env.PORT || '4022', 10),
   host: process.env.HOST || '0.0.0.0',
@@ -49,7 +58,7 @@ export const config: AppConfig = {
   walletAddress: process.env.WALLET_ADDRESS || '',
   priceUsdc: envFloat('PRICE_USDC', 0.002),
   network: (process.env.X402_NETWORK || 'eip155:84532') as NetworkId,
-  facilitatorUrl: process.env.FACILITATOR_URL || 'https://x402.org/facilitator',
+  facilitatorUrl: resolveFacilitatorUrl(),
   usdcBase: process.env.USDC_BASE || '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
   serviceName: process.env.SERVICE_NAME || 'nodeproxy',
   serviceTags: (process.env.SERVICE_TAGS || 'web,scrape,markdown,llm,parser,mcp,x402').split(','),

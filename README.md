@@ -170,6 +170,26 @@ PRICE_USDC=0.002
 
 USDC on Base: `0x833589fcd6edb6e08f4c7c32d4f71b54bda02913`
 
+## Upstream framework integrations
+
+To get NodeProxy baked into LangChain, CrewAI, and MCP registry discovery (instead of hoping agents find your URL), see:
+
+- **[integrations/UPSTREAM.md](./integrations/UPSTREAM.md)** — fork → PR → merge playbook
+- **`integrations/python/`** — `nodeproxy-tools` PyPI package + LangChain/CrewAI wrappers
+- **`integrations/typescript/`** — `@nodeproxy/langchain` npm package
+- **`integrations/mcp-registry/`** — MCP registry PR template
+
+Quick LangChain example:
+
+```python
+pip install "nodeproxy-tools[x402,langchain]"
+export EVM_PRIVATE_KEY=0x...
+
+from nodeproxy_tools.langchain import NodeProxyMarkdownTool
+tool = NodeProxyMarkdownTool()
+markdown = tool.invoke({"url": "https://example.com"})
+```
+
 ## Naming
 
 **NodeProxy** is registry-ready: boring, predictable, and reads as infrastructure. The paid tool name remains `surface_markdown_parser` so semantic search hits match intent.

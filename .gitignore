@@ -4,3 +4,10 @@ dist
 .env.local
 *.log
 .DS_Store
+*.tgz
+integrations/**/node_modules
+integrations/**/dist
+integrations/python/dist
+integrations/python/build
+integrations/python/*.egg-info
+integrations/python/nodeproxy_tools.egg-info

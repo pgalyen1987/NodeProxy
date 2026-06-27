@@ -1,8 +1,4 @@
-import {
-  HTTPFacilitatorClient,
-  x402ResourceServer,
-  type HTTPRequestContext
-} from '@x402/core/server';
+import { HTTPFacilitatorClient, x402ResourceServer, type HTTPRequestContext } from '@x402/core/server';
 import { x402HTTPResourceServer } from '@x402/core/http';
 import {
   decodePaymentSignatureHeader,
@@ -12,9 +8,21 @@ import {
 import type { PaymentPayload, PaymentRequirements } from '@x402/core/types';
 import { ExactEvmScheme } from '@x402/evm/exact/server';
 import { bazaarResourceServerExtension } from '@x402/extensions/bazaar';
+import { createFacilitatorConfig } from '@coinbase/x402';
 import { config, priceLabel, TOOL_DESCRIPTION } from '../config.js';
 
-const facilitator = new HTTPFacilitatorClient({ url: config.facilitatorUrl });
+function buildFacilitatorClient(): HTTPFacilitatorClient {
+  const cdpId = process.env.CDP_API_KEY_ID;
+  const cdpSecret = process.env.CDP_API_KEY_SECRET;
+
+  if (cdpId && cdpSecret) {
+    return new HTTPFacilitatorClient(createFacilitatorConfig(cdpId, cdpSecret));
+  }
+
+  return new HTTPFacilitatorClient({ url: config.facilitatorUrl });
+}
+
+const facilitator = buildFacilitatorClient();
 
 export const resourceServer = new x402ResourceServer(facilitator)
   .register('eip155:*', new ExactEvmScheme())

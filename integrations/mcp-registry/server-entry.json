@@ -1,0 +1,32 @@
+{
+  "$schema": "https://modelcontextprotocol.io/schemas/registry/v1/server.schema.json",
+  "name": "nodeproxy",
+  "title": "NodeProxy Web Surface Markdown Parser",
+  "description": "x402-gated MCP server that fetches public URLs, strips scripts/ads/nav, and returns compressed Markdown optimized for LLM token ingestion.",
+  "version": "1.0.0",
+  "websiteUrl": "https://github.com/pgalyen1987/NodeProxy",
+  "repository": {
+    "url": "https://github.com/pgalyen1987/NodeProxy",
+    "source": "github"
+  },
+  "transport": {
+    "type": "streamable-http",
+    "url": "https://nodeproxy-production.up.railway.app/mcp"
+  },
+  "toolsUrl": "https://nodeproxy-production.up.railway.app/mcp/tools",
+  "wellKnownUrl": "https://nodeproxy-production.up.railway.app/.well-known/mcp.json",
+  "healthUrl": "https://nodeproxy-production.up.railway.app/health",
+  "tags": ["web", "scrape", "markdown", "llm", "parser", "x402", "mcp"],
+  "pricing": {
+    "model": "x402",
+    "currency": "USDC",
+    "amount": 0.002,
+    "network": "eip155:84532"
+  },
+  "tools": [
+    {
+      "name": "surface_markdown_parser",
+      "description": "Executes fetch on any public URL, strips scripts/ads/nav noise, and returns compressed semantic Markdown optimized for LLM token ingestion."
+    }
+  ]
+}
