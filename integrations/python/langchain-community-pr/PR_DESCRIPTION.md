@@ -21,13 +21,13 @@ markdown = tool.invoke({"url": "https://docs.python.org/3/"})
 Requires:
 
 ```bash
-pip install "langchain-community[nodeproxy]"
-export EVM_PRIVATE_KEY=0x...  # funded on Base Sepolia or Base mainnet
+pip install "nodeproxy-tools[x402,langchain]"
+export EVM_PRIVATE_KEY=0x...  # Base mainnet USDC
 ```
 
 ## Test plan
 
-- [ ] `NodeProxyMarkdownTool` import succeeds with optional extra installed
+- [ ] `NodeProxyMarkdownTool` import with `pip install nodeproxy-tools[x402,langchain]`
 - [ ] Unit test mocks `NodeProxyClient.parse_url_text` (no live payment in CI)
 - [ ] Tool schema exposes `url: str` with description for agent routing
 - [ ] Manual smoke test against `https://nodeproxy-production.up.railway.app` (optional)
@@ -40,4 +40,4 @@ export EVM_PRIVATE_KEY=0x...  # funded on Base Sepolia or Base mainnet
 | Tools | https://nodeproxy-production.up.railway.app/mcp/tools |
 | Execute | https://nodeproxy-production.up.railway.app/mcp/execute |
 
-Default price: **$0.002 USDC** per parse on Base Sepolia (testnet) or Base mainnet.
+Default price: **$0.002 USDC** per parse on Base mainnet.

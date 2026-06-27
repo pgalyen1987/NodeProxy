@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # Open LangChain Community PR for NodeProxyMarkdownTool.
-# Requires: gh auth login
+# Requires: gh auth login  (one-time: https://github.com/login/device)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="/tmp/langchain-community-nodeproxy-pr"
 UPSTREAM="langchain-ai/langchain-community"
+
+if ! gh auth status >/dev/null 2>&1; then
+  echo "Run: gh auth login -h github.com -p ssh -w"
+  exit 1
+fi
+
 FORK="$(gh api user --jq .login)/langchain-community"
 
 echo "Forking $UPSTREAM if needed..."
@@ -15,8 +21,6 @@ rm -rf "$WORK"
 gh repo clone "$FORK" "$WORK" -- --depth 1
 cd "$WORK"
 
-git remote add upstream "https://github.com/$UPSTREAM.git" 2>/dev/null || true
-git fetch upstream main
 git checkout -b feat/nodeproxy-x402-markdown-tool
 
 cp -r "$ROOT/langchain-community-pr/nodeproxy" libs/community/langchain_community/tools/
@@ -47,10 +51,10 @@ git commit -m "feat(community): add NodeProxy x402 markdown parser tool"
 
 git push -u origin feat/nodeproxy-x402-markdown-tool
 
-gh pr create \
+PR_URL=$(gh pr create \
   --repo "$UPSTREAM" \
   --head "$FORK:feat/nodeproxy-x402-markdown-tool" \
   --title "feat(community): add NodeProxy x402 markdown parser tool" \
-  --body-file "$ROOT/langchain-community-pr/PR_DESCRIPTION.md"
+  --body-file "$ROOT/langchain-community-pr/PR_DESCRIPTION.md")
 
-echo "PR opened."
+echo "PR opened: $PR_URL"

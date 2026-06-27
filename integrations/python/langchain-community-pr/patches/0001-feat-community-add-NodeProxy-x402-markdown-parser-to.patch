@@ -1,0 +1,150 @@
+From a0a601d31469a84297ee02d9e08b0ba76b982788 Mon Sep 17 00:00:00 2001
+From: My dude <me@weinermobile.oscarmyer.com>
+Date: Sat, 27 Jun 2026 18:39:06 -0400
+Subject: [PATCH] feat(community): add NodeProxy x402 markdown parser tool
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+---
+ .../langchain_community/tools/__init__.py     |  5 ++
+ .../tools/nodeproxy/__init__.py               |  5 ++
+ .../tools/nodeproxy/tool.py                   | 55 +++++++++++++++++++
+ .../tools/nodeproxy/test_nodeproxy_tool.py    | 23 ++++++++
+ 4 files changed, 88 insertions(+)
+ create mode 100644 libs/community/langchain_community/tools/nodeproxy/__init__.py
+ create mode 100644 libs/community/langchain_community/tools/nodeproxy/tool.py
+ create mode 100644 libs/community/tests/unit_tests/tools/nodeproxy/test_nodeproxy_tool.py
+
+diff --git a/libs/community/langchain_community/tools/__init__.py b/libs/community/langchain_community/tools/__init__.py
+index b78644e..bf7d770 100644
+--- a/libs/community/langchain_community/tools/__init__.py
++++ b/libs/community/langchain_community/tools/__init__.py
+@@ -182,6 +182,9 @@ if TYPE_CHECKING:
+     from langchain_community.tools.nasa.tool import (
+         NasaAction,
+     )
++    from langchain_community.tools.nodeproxy.tool import (
++        NodeProxyMarkdownTool,
++    )
+     from langchain_community.tools.office365.create_draft_message import (
+         O365CreateDraftMessage,
+     )
+@@ -427,6 +430,7 @@ __all__ = [
+     "MojeekSearch",
+     "MoveFileTool",
+     "NasaAction",
++    "NodeProxyMarkdownTool",
+     "NavigateBackTool",
+     "NavigateTool",
+     "O365CreateDraftMessage",
+@@ -578,6 +582,7 @@ _module_lookup = {
+     "MojeekSearch": "langchain_community.tools.mojeek_search.tool",
+     "MoveFileTool": "langchain_community.tools.file_management",
+     "NasaAction": "langchain_community.tools.nasa.tool",
++    "NodeProxyMarkdownTool": "langchain_community.tools.nodeproxy.tool",
+     "NavigateBackTool": "langchain_community.tools.playwright",
+     "NavigateTool": "langchain_community.tools.playwright",
+     "O365CreateDraftMessage": "langchain_community.tools.office365.create_draft_message",  # noqa: E501
+diff --git a/libs/community/langchain_community/tools/nodeproxy/__init__.py b/libs/community/langchain_community/tools/nodeproxy/__init__.py
+new file mode 100644
+index 0000000..8c3d2c4
+--- /dev/null
++++ b/libs/community/langchain_community/tools/nodeproxy/__init__.py
+@@ -0,0 +1,5 @@
++"""NodeProxy x402 markdown parser tool for langchain-community."""
++
++from langchain_community.tools.nodeproxy.tool import NodeProxyMarkdownTool
++
++__all__ = ["NodeProxyMarkdownTool"]
+diff --git a/libs/community/langchain_community/tools/nodeproxy/tool.py b/libs/community/langchain_community/tools/nodeproxy/tool.py
+new file mode 100644
+index 0000000..b1ca11e
+--- /dev/null
++++ b/libs/community/langchain_community/tools/nodeproxy/tool.py
+@@ -0,0 +1,55 @@
++from __future__ import annotations
++
++from typing import Optional
++
++from langchain_core.callbacks import CallbackManagerForToolRun
++from langchain_core.tools import BaseTool
++from pydantic import BaseModel, ConfigDict, Field
++
++try:
++    from nodeproxy_tools.client import NodeProxyClient, NodeProxyError
++    from nodeproxy_tools.constants import DEFAULT_API_URL, TOOL_DESCRIPTION, TOOL_NAME
++except ImportError as exc:
++    raise ImportError(
++        'Install nodeproxy-tools: pip install "nodeproxy-tools[x402,langchain]"'
++    ) from exc
++
++
++class NodeProxyInput(BaseModel):
++    """Input for the NodeProxy surface markdown parser."""
++
++    url: str = Field(description="Public website URL to parse into LLM-ready Markdown.")
++
++
++class NodeProxyMarkdownTool(BaseTool):
++    """Tool that fetches a URL via NodeProxy and returns token-efficient Markdown.
++
++    NodeProxy strips scripts, ads, and navigation chrome, returning compressed
++    Markdown suitable for LLM context windows. Each call is paid via x402 USDC
++    micropayment (requires ``EVM_PRIVATE_KEY`` in the environment).
++
++    .. versionadded:: 0.3.0
++    """
++
++    name: str = TOOL_NAME
++    description: str = TOOL_DESCRIPTION
++    args_schema: type[BaseModel] = NodeProxyInput
++
++    api_url: str = Field(default=DEFAULT_API_URL)
++    client: Optional[NodeProxyClient] = Field(default=None)
++    model_config = ConfigDict(arbitrary_types_allowed=True)
++
++    def model_post_init(self, __context: object) -> None:
++        if self.client is None:
++            self.client = NodeProxyClient(api_url=self.api_url)
++
++    def _run(
++        self,
++        url: str,
++        run_manager: Optional[CallbackManagerForToolRun] = None,
++    ) -> str:
++        assert self.client is not None
++        try:
++            return self.client.parse_url_text(url)
++        except NodeProxyError as exc:
++            return f"NodeProxy error: {exc}"
+diff --git a/libs/community/tests/unit_tests/tools/nodeproxy/test_nodeproxy_tool.py b/libs/community/tests/unit_tests/tools/nodeproxy/test_nodeproxy_tool.py
+new file mode 100644
+index 0000000..4a0de8e
+--- /dev/null
++++ b/libs/community/tests/unit_tests/tools/nodeproxy/test_nodeproxy_tool.py
+@@ -0,0 +1,23 @@
++import unittest
++from typing import Any
++from unittest.mock import MagicMock, patch
++
++from langchain_community.tools.nodeproxy.tool import NodeProxyMarkdownTool
++
++
++class TestNodeProxyMarkdownTool(unittest.TestCase):
++    @patch("langchain_community.tools.nodeproxy.tool.NodeProxyClient")
++    def test_run_returns_markdown(self, mock_client_cls: Any) -> None:
++        mock_client = MagicMock()
++        mock_client.parse_url_text.return_value = "# Example"
++        mock_client_cls.return_value = mock_client
++
++        tool = NodeProxyMarkdownTool(client=mock_client)
++        result = tool.invoke({"url": "https://example.com"})
++
++        assert result == "# Example"
++        mock_client.parse_url_text.assert_called_once_with("https://example.com")
++
++
++if __name__ == "__main__":
++    unittest.main()
+-- 
+2.53.0
+
