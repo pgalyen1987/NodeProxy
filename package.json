@@ -29,6 +29,8 @@
     "@x402/mcp": "~2.17.0",
     "hono": "^4.8.3",
     "jsdom": "^26.1.0",
+    "playwright": "^1.61.1",
+    "redis": "^4.7.1",
     "zod": "^3.24.2"
   },
   "devDependencies": {

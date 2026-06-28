@@ -3,7 +3,8 @@ import { createPaymentWrapper } from '@x402/mcp';
 import { declareDiscoveryExtension } from '@x402/extensions/bazaar';
 import { z } from 'zod';
 import { config, priceLabel, TOOL_DESCRIPTION, TOOL_NAME } from '../config.js';
-import { parseSurface, UrlSafetyError } from '../parser/surface.js';
+import { UrlSafetyError } from '../parser/surface.js';
+import { resolveSurfaceMarkdown } from '../parser/resolve.js';
 import { ensureX402Ready, resourceServer } from '../x402/payments.js';
 import { networkPaymentOptions } from '../x402/networks.js';
 import { resolvePayment } from '../x402/negotiate.js';
@@ -86,7 +87,7 @@ export async function createMcpServer(): Promise<McpServer> {
     },
     paid(async ({ url }) => {
       try {
-        const { markdown, bytes } = await parseSurface(url);
+        const { markdown, bytes, cache, render } = await resolveSurfaceMarkdown(url);
         return {
           content: [
             {
@@ -94,7 +95,7 @@ export async function createMcpServer(): Promise<McpServer> {
               text: markdown
             }
           ],
-          structuredContent: { source: url, bytes }
+          structuredContent: { source: url, bytes, cache, render }
         };
       } catch (err) {
         const message = err instanceof UrlSafetyError ? err.message : err instanceof Error ? err.message : 'Parse failed';

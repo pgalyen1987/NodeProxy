@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { htmlToMarkdown } from '../src/parser/surface.js';
+import { htmlToMarkdown, contentWeight, isThinMarkdown } from '../src/parser/surface.js';
 
 describe('htmlToMarkdown', () => {
   it('strips scripts and compresses body text', () => {
@@ -12,5 +12,19 @@ describe('htmlToMarkdown', () => {
     assert.match(md, /World wide/);
     assert.doesNotMatch(md, /track\(\)/);
     assert.doesNotMatch(md, /Menu/);
+  });
+
+  it('extracts JSON-LD before stripping scripts', () => {
+    const html = `<!doctype html><html><head><script type="application/ld+json">{"@type":"Article","name":"Demo"}</script></head><body><main><p>Body</p></main></body></html>`;
+    const md = htmlToMarkdown(html, 'https://example.com');
+    assert.match(md, /Structured hints/);
+    assert.match(md, /"name": "Demo"/);
+    assert.doesNotMatch(md, /application\/ld\+json/);
+  });
+
+  it('detects thin markdown for auto Playwright escalation', () => {
+    const thin = htmlToMarkdown('<html><body><div id="root"></div></body></html>', 'https://spa.example');
+    assert.ok(isThinMarkdown(thin));
+    assert.ok(contentWeight(thin) < 200);
   });
 });

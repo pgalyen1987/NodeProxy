@@ -39,6 +39,14 @@ export interface AppConfig {
   maxConcurrentParses: number;
   rateLimitPerMinute: number;
   maxHtmlBytes: number;
+  redisUrl: string;
+  cacheEnabled: boolean;
+  cacheTtlSeconds: number;
+  cacheMaxEntries: number;
+  renderEngine: 'auto' | 'jsdom' | 'playwright';
+  playwrightMinText: number;
+  playwrightWaitMs: number;
+  playwrightTimeoutMs: number;
 }
 
 function envInt(name: string, fallback: number): number {
@@ -91,6 +99,12 @@ function resolveNetworks(): NetworkId[] {
   return [single];
 }
 
+function envRenderEngine(): 'auto' | 'jsdom' | 'playwright' {
+  const raw = (process.env.RENDER_ENGINE || 'auto').toLowerCase();
+  if (raw === 'jsdom' || raw === 'playwright') return raw;
+  return 'auto';
+}
+
 const networks = filterNetworksForFacilitator(resolveNetworks());
 const networkPayments: NetworkPaymentConfig[] = networks.map((network) => ({
   network,
@@ -113,7 +127,15 @@ export const config: AppConfig = {
   serviceTags: (process.env.SERVICE_TAGS || 'web,scrape,markdown,llm,parser,mcp,x402').split(','),
   maxConcurrentParses: envInt('MAX_CONCURRENT_PARSES', 20),
   rateLimitPerMinute: envInt('RATE_LIMIT_PER_MINUTE', 120),
-  maxHtmlBytes: envInt('MAX_HTML_BYTES', 5_242_880)
+  maxHtmlBytes: envInt('MAX_HTML_BYTES', 5_242_880),
+  redisUrl: process.env.REDIS_URL?.trim() || '',
+  cacheEnabled: (process.env.CACHE_ENABLED ?? '1') !== '0',
+  cacheTtlSeconds: envInt('CACHE_TTL_SECONDS', 600),
+  cacheMaxEntries: envInt('CACHE_MAX_ENTRIES', 10),
+  renderEngine: envRenderEngine(),
+  playwrightMinText: envInt('PLAYWRIGHT_MIN_TEXT', 200),
+  playwrightWaitMs: envInt('PLAYWRIGHT_WAIT_MS', 2500),
+  playwrightTimeoutMs: envInt('PLAYWRIGHT_TIMEOUT_MS', 30_000)
 };
 
 export function priceLabel(): string {

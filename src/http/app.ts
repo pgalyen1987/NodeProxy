@@ -2,7 +2,9 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { config, TOOL_NAME } from '../config.js';
 import { buildToolsManifest, buildWellKnownManifest, buildX402WellKnownManifest, buildAgentDiscoveryCard, buildRobotsTxt } from '../discovery/manifest.js';
-import { parseSurface, UrlSafetyError } from '../parser/surface.js';
+import { UrlSafetyError } from '../parser/surface.js';
+import { resolveSurfaceMarkdown } from '../parser/resolve.js';
+import { cacheSnapshot } from '../lib/parseCache.js';
 import {
   consumeProof,
   createToolPaymentChallenge,
@@ -51,7 +53,10 @@ export function createHttpApp() {
       currency: 'USDC',
       ethereumMainnetUsdc: config.networks.includes('eip155:1'),
       priceUsdc: config.priceUsdc,
-      capacity: parseCapacitySnapshot()
+      capacity: parseCapacitySnapshot(),
+      cache: cacheSnapshot(),
+      renderEngine: config.renderEngine,
+      playwright: config.renderEngine !== 'jsdom'
     })
   );
 
@@ -131,12 +136,19 @@ export function createHttpApp() {
       }
 
       try {
-        const { markdown } = await parseSurface(body.arguments.url);
-        const headers: Record<string, string> = { ...settled.headers };
+        const { markdown, cache, cachedAt, render } = await resolveSurfaceMarkdown(body.arguments.url);
+        const headers: Record<string, string> = {
+          ...settled.headers,
+          'X-Cache': cache,
+          'X-Render': render,
+          ...(cachedAt ? { 'X-Cache-At': cachedAt } : {})
+        };
         return c.json(
           {
             content: [{ type: 'text', text: markdown }],
-            settlement: { transaction: settled.transaction, network: settled.network }
+            settlement: { transaction: settled.transaction, network: settled.network },
+            cache: { status: cache, cachedAt },
+            render
           },
           200,
           headers
