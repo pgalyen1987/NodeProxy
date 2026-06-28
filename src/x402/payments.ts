@@ -1,4 +1,4 @@
-import { HTTPFacilitatorClient, x402ResourceServer, type HTTPRequestContext } from '@x402/core/server';
+import { x402ResourceServer, type HTTPRequestContext } from '@x402/core/server';
 import { x402HTTPResourceServer } from '@x402/core/http';
 import {
   decodePaymentSignatureHeader,
@@ -8,18 +8,24 @@ import {
 import type { PaymentPayload, PaymentRequirements } from '@x402/core/types';
 import { ExactEvmScheme } from '@x402/evm/exact/server';
 import { bazaarResourceServerExtension } from '@x402/extensions/bazaar';
-import { createFacilitatorConfig } from '@coinbase/x402';
-import { config, priceLabel, TOOL_DESCRIPTION } from '../config.js';
+import { config, TOOL_DESCRIPTION } from '../config.js';
+import { buildFacilitatorClients } from './facilitators.js';
+import { networkPaymentOptions } from './networks.js';
+import { parsePaymentHints, resolvePayment, type PaymentHints, toPaymentSummary } from './negotiate.js';
 
-function buildFacilitatorClient(): HTTPFacilitatorClient {
-  const cdpId = process.env.CDP_API_KEY_ID;
-  const cdpSecret = process.env.CDP_API_KEY_SECRET;
+export type { PaymentHints, ResolvedPayment } from './negotiate.js';
+export { parsePaymentHints, resolvePayment, toPaymentSummary };
 
-  if (cdpId && cdpSecret) {
-    return new HTTPFacilitatorClient(createFacilitatorConfig(cdpId, cdpSecret));
-  }
+function buildFacilitatorClient() {
+  return buildFacilitatorClients(config.facilitatorUrl);
+}
 
-  return new HTTPFacilitatorClient({ url: config.facilitatorUrl });
+function buildAcceptsConfig() {
+  return networkPaymentOptions(
+    config.networks,
+    config.walletAddress || '0x0000000000000000000000000000000000000000',
+    config.priceUsdc
+  );
 }
 
 const facilitator = buildFacilitatorClient();
@@ -29,12 +35,7 @@ export const resourceServer = new x402ResourceServer(facilitator)
   .registerExtension(bazaarResourceServerExtension);
 
 export const httpResourceServer = new x402HTTPResourceServer(resourceServer, {
-  accepts: {
-    scheme: 'exact',
-    network: config.network,
-    payTo: config.walletAddress || '0x0000000000000000000000000000000000000000',
-    price: priceLabel()
-  }
+  accepts: buildAcceptsConfig()
 });
 
 let ready = false;
@@ -54,17 +55,26 @@ export function decodePaymentHeader(header?: string | null): PaymentPayload | nu
   }
 }
 
-export async function buildToolRequirements(context: HTTPRequestContext): Promise<PaymentRequirements[]> {
+export async function buildAllToolRequirements(context: HTTPRequestContext): Promise<PaymentRequirements[]> {
   return resourceServer.buildPaymentRequirementsFromOptions(
-    [
-      {
-        scheme: 'exact',
-        payTo: config.walletAddress,
-        price: priceLabel(),
-        network: config.network,
-        maxTimeoutSeconds: 300
-      }
-    ],
+    networkPaymentOptions(config.networks, config.walletAddress, config.priceUsdc),
+    context
+  );
+}
+
+export async function buildToolRequirements(
+  context: HTTPRequestContext,
+  hints?: PaymentHints
+): Promise<PaymentRequirements[]> {
+  const resolvedHints = hints ?? { mode: 'auto' as const };
+
+  if (resolvedHints.mode === 'all') {
+    return buildAllToolRequirements(context);
+  }
+
+  const resolved = await resolvePayment(resolvedHints);
+  return resourceServer.buildPaymentRequirementsFromOptions(
+    networkPaymentOptions([resolved.network], config.walletAddress, config.priceUsdc),
     context
   );
 }
@@ -72,9 +82,11 @@ export async function buildToolRequirements(context: HTTPRequestContext): Promis
 export async function createToolPaymentChallenge(
   context: HTTPRequestContext,
   resourceUrl: string,
-  extensions?: Record<string, unknown>
+  extensions?: Record<string, unknown>,
+  hints?: PaymentHints
 ) {
-  const requirements = await buildToolRequirements(context);
+  const resolvedHints = hints ?? parsePaymentHints(context);
+  const requirements = await buildToolRequirements(context, resolvedHints);
   const paymentRequired = await resourceServer.createPaymentRequiredResponse(
     requirements,
     {
@@ -88,7 +100,14 @@ export async function createToolPaymentChallenge(
     extensions,
     context
   );
-  return { paymentRequired, requirements };
+
+  const resolved = await resolvePayment(resolvedHints);
+  return {
+    paymentRequired,
+    requirements,
+    payment: toPaymentSummary(resolved),
+    mode: resolvedHints.mode
+  };
 }
 
 export async function verifyAndSettleToolPayment(
@@ -141,7 +160,8 @@ export async function verifyAndSettleToolPayment(
       ...settle.headers,
       'PAYMENT-RESPONSE': encodePaymentResponseHeader(settle)
     },
-    transaction: settle.transaction
+    transaction: settle.transaction,
+    network: payload.accepted.network
   };
 }
 

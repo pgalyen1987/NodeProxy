@@ -25,6 +25,7 @@ async function main() {
       console.log(`  MCP transport: ${base}/mcp`);
       console.log(`  Registry JSON: ${base}/registry/server.json`);
       console.log(`  Price:         ${config.priceUsdc} USDC → ${config.walletAddress || '(unset)'}`);
+      console.log(`  Networks:      ${config.networks.join(', ')}`);
     }
   );
 }

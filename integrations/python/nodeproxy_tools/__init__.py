@@ -18,4 +18,4 @@ __all__ = [
     "TOOL_NAME",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.1.2"

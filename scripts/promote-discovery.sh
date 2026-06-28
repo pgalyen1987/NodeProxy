@@ -76,11 +76,16 @@ else
 fi
 
 echo ""
-echo "4. PyPI client package"
+echo "4. Client packages (PyPI + npm)"
 if curl -sf "https://pypi.org/pypi/nodeproxy-tools/json" | grep -q '"info"'; then
   ok "nodeproxy-tools on PyPI"
 else
   bad "nodeproxy-tools not on PyPI"
+fi
+if curl -sf "https://registry.npmjs.org/@nodeproxy%2flangchain" | grep -q '"name"'; then
+  ok "@nodeproxy/langchain on npm"
+else
+  bad "@nodeproxy/langchain not on npm — run: bash integrations/typescript/publish.sh"
 fi
 
 echo ""
@@ -112,6 +117,11 @@ cat <<EOF
 pip install "nodeproxy-tools[x402,langchain]"
 export EVM_PRIVATE_KEY=0x...
 # from nodeproxy_tools.langchain import NodeProxyMarkdownTool
+
+--- TypeScript / LangChain.js ---
+npm install @nodeproxy/langchain @langchain/core
+export EVM_PRIVATE_KEY=0x...
+# import { NodeProxyMarkdownTool } from '@nodeproxy/langchain'
 
 --- Discovery URLs ---
 MCP registry : $MCP_NAME

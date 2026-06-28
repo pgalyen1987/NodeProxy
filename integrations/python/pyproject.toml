@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nodeproxy-tools"
-version = "0.1.1"
+version = "0.1.2"
 description = "LangChain/CrewAI integrations for the NodeProxy x402 web surface markdown parser"
 readme = "README.md"
 requires-python = ">=3.10"

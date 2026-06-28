@@ -12,7 +12,9 @@
     "test": "node --import tsx --test test/**/*.test.ts",
     "typecheck": "tsc --noEmit",
     "promote": "bash scripts/promote-discovery.sh",
-    "test:paid": "bash scripts/test-paid-parse.sh"
+    "test:paid": "bash scripts/test-paid-parse.sh",
+    "publish:npm": "bash integrations/typescript/publish.sh",
+    "publish:pypi": "bash integrations/python/publish.sh"
   },
   "engines": {
     "node": ">=20"

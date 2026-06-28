@@ -5,19 +5,23 @@ import { z } from 'zod';
 import { config, priceLabel, TOOL_DESCRIPTION, TOOL_NAME } from '../config.js';
 import { parseSurface, UrlSafetyError } from '../parser/surface.js';
 import { ensureX402Ready, resourceServer } from '../x402/payments.js';
+import { networkPaymentOptions } from '../x402/networks.js';
+import { resolvePayment } from '../x402/negotiate.js';
 
-let acceptsCache: Awaited<ReturnType<typeof resourceServer.buildPaymentRequirements>> | null = null;
+let acceptsCache: Awaited<ReturnType<typeof resourceServer.buildPaymentRequirementsFromOptions>> | null = null;
 
 async function getAccepts() {
   if (!acceptsCache) {
     await ensureX402Ready();
-    acceptsCache = await resourceServer.buildPaymentRequirements({
-      scheme: 'exact',
-      network: config.network,
-      payTo: config.walletAddress || '0x0000000000000000000000000000000000000000',
-      price: priceLabel(),
-      maxTimeoutSeconds: 300
-    });
+    const resolved = await resolvePayment({ mode: 'auto' });
+    acceptsCache = await resourceServer.buildPaymentRequirementsFromOptions(
+      networkPaymentOptions(
+        [resolved.network],
+        config.walletAddress || '0x0000000000000000000000000000000000000000',
+        config.priceUsdc
+      ),
+      {}
+    );
   }
   return acceptsCache;
 }
@@ -65,9 +69,9 @@ export async function createMcpServer(): Promise<McpServer> {
         tools: {}
       },
       instructions:
-        'Paid x402 web surface parser. Call surface_markdown_parser with a public URL to receive token-efficient Markdown. Payment settles on ' +
-        config.network +
-        ' via x402.'
+        'Paid x402 web surface parser. Call surface_markdown_parser with a public URL to receive token-efficient Markdown. Payment is USDC via x402; the server auto-selects network (Base default, or pass paymentNetwork / payerAddress). Supported networks: ' +
+        config.networks.join(', ') +
+        '.'
     }
   );
 

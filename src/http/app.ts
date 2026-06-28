@@ -8,8 +8,10 @@ import {
   createToolPaymentChallenge,
   encodePaymentRequiredHeader,
   ensureX402Ready,
+  parsePaymentHints,
   releaseProof,
-  verifyAndSettleToolPayment
+  verifyAndSettleToolPayment,
+  buildAllToolRequirements
 } from '../x402/payments.js';
 import { declareDiscoveryExtension } from '@x402/extensions/bazaar';
 import { buildRequestContext } from './context.js';
@@ -44,6 +46,10 @@ export function createHttpApp() {
       ok: true,
       service: 'nodeproxy',
       network: config.network,
+      networks: config.networks,
+      paymentMode: process.env.X402_PAYMENT_MODE || 'auto',
+      currency: 'USDC',
+      ethereumMainnetUsdc: config.networks.includes('eip155:1'),
       priceUsdc: config.priceUsdc,
       capacity: parseCapacitySnapshot()
     })
@@ -75,7 +81,14 @@ export function createHttpApp() {
 
       await ensureX402Ready();
 
-      let body: { tool?: string; arguments?: { url?: string } };
+      let body: {
+        tool?: string;
+        arguments?: { url?: string };
+        paymentNetwork?: string;
+        payerAddress?: string;
+        paymentOptions?: string;
+        network?: string;
+      };
       try {
         body = await c.req.json();
       } catch {
@@ -89,17 +102,19 @@ export function createHttpApp() {
       const context = buildRequestContext(c);
       const resourceUrl = `${config.publicUrl}/mcp/execute`;
       const signature = c.req.header('payment-signature') || c.req.header('PAYMENT-SIGNATURE');
+      const paymentHints = parsePaymentHints(context, body);
 
       if (!signature) {
-        const { paymentRequired } = await createToolPaymentChallenge(context, resourceUrl, bazaarExtensions);
+        const challenge = await createToolPaymentChallenge(context, resourceUrl, bazaarExtensions, paymentHints);
         return c.json(
           {
             error: 'Payment Required',
             message: 'Valid x402 PAYMENT-SIGNATURE required.',
-            x402: paymentRequired
+            payment: challenge.payment,
+            x402: challenge.paymentRequired
           },
           402,
-          { 'PAYMENT-REQUIRED': encodePaymentRequiredHeader(paymentRequired) }
+          { 'PAYMENT-REQUIRED': encodePaymentRequiredHeader(challenge.paymentRequired) }
         );
       }
 
@@ -107,7 +122,7 @@ export function createHttpApp() {
         return c.json({ error: 'Payment proof already consumed' }, 409);
       }
 
-      const { requirements } = await createToolPaymentChallenge(context, resourceUrl, bazaarExtensions);
+      const requirements = await buildAllToolRequirements(context);
       const settled = await verifyAndSettleToolPayment(context, signature, requirements);
 
       if (!settled.ok) {
@@ -121,7 +136,7 @@ export function createHttpApp() {
         return c.json(
           {
             content: [{ type: 'text', text: markdown }],
-            settlement: { transaction: settled.transaction, network: config.network }
+            settlement: { transaction: settled.transaction, network: settled.network }
           },
           200,
           headers

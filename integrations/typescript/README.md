@@ -22,8 +22,10 @@ console.log(markdown);
 ## Publish
 
 ```bash
-npm run build
-npm publish --access public
+# One-time: create free org "nodeproxy" at https://www.npmjs.com/org/create
+# Token: https://www.npmjs.com/settings/~/tokens (Automation, publish)
+export NPM_TOKEN=npm_...
+bash publish.sh
 ```
 
-Then open a PR to `@langchain/community` mirroring the Python `langchain-community-pr/` folder.
+Verify: `npm view @nodeproxy/langchain`

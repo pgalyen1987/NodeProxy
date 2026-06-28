@@ -24,7 +24,24 @@ export function buildToolsManifest() {
     },
     payments: {
       protocol: 'x402',
+      currency: 'USDC',
+      autoNegotiation: {
+        enabled: true,
+        mode: 'auto',
+        selectionOrder: ['explicit header/body', 'payer USDC balance', 'Base default'],
+        payerHintFields: ['payerAddress', 'X-Payer-Address'],
+        networkHintFields: ['paymentNetwork', 'X-Payment-Network'],
+        allNetworksHeader: 'X-Payment-Options: all'
+      },
       network: config.network,
+      networks: config.networks,
+      networkOptions: config.networkPayments.map((n) => ({
+        network: n.network,
+        label: n.label,
+        asset: n.asset,
+        priceUsdc: config.priceUsdc,
+        payTo: config.walletAddress
+      })),
       asset: config.usdcBase,
       priceUsdc: config.priceUsdc,
       payTo: config.walletAddress,
@@ -38,7 +55,8 @@ export function buildToolsManifest() {
         pricing: {
           amount: priceLabel(),
           network: config.network,
-          asset: config.usdcBase
+          networks: config.networks,
+          assets: config.networkPayments.map((n) => ({ network: n.network, asset: n.asset }))
         }
       }
     ],
@@ -74,7 +92,8 @@ export function buildX402WellKnownManifest() {
     repository: 'https://github.com/pgalyen1987/NodeProxy',
     mcpRegistry: 'io.github.pgalyen1987/nodeproxy',
     packages: {
-      pypi: { name: 'nodeproxy-tools', extras: ['x402', 'langchain'] }
+      pypi: { name: 'nodeproxy-tools', extras: ['x402', 'langchain'] },
+      npm: { name: '@nodeproxy/langchain', peer: '@langchain/core' }
     },
     payments: manifest.payments,
     resources: [
@@ -85,7 +104,11 @@ export function buildX402WellKnownManifest() {
         toolName: TOOL_NAME,
         description: TOOL_DESCRIPTION,
         inputSchema: toolInputSchema,
-        pricing: { amountUsdc: config.priceUsdc, network: config.network }
+        pricing: {
+          amountUsdc: config.priceUsdc,
+          network: config.network,
+          networks: config.networks
+        }
       }
     ],
     discovery: manifest.discovery
@@ -110,12 +133,14 @@ export function buildAgentDiscoveryCard() {
           protocol: 'x402',
           priceUsdc: config.priceUsdc,
           network: config.network,
+          networks: config.networks,
           payTo: config.walletAddress
         }
       }
     ],
     install: {
       pip: 'pip install "nodeproxy-tools[x402,langchain]"',
+      npm: 'npm install @nodeproxy/langchain @langchain/core',
       mcpRemote: `${config.publicUrl}/mcp`,
       env: ['EVM_PRIVATE_KEY']
     },

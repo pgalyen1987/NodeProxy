@@ -28,8 +28,8 @@ class NodeProxyClient:
     """
     Calls NodeProxy ``POST /mcp/execute`` with automatic x402 payment handling.
 
-    Requires ``EVM_PRIVATE_KEY`` (or pass ``evm_private_key=``) with USDC on the
-    network your NodeProxy deployment uses (Base Sepolia testnet or Base mainnet).
+    Requires ``EVM_PRIVATE_KEY`` (or pass ``evm_private_key=``) with USDC on a
+    supported network (Base, Polygon, Arbitrum, or Ethereum mainnet).
     """
 
     def __init__(
