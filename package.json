@@ -10,7 +10,9 @@
     "start:tsx": "node --import tsx src/index.ts",
     "mcp:stdio": "node --import tsx src/mcp/stdio.ts",
     "test": "node --import tsx --test test/**/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "promote": "bash scripts/promote-discovery.sh",
+    "test:paid": "bash scripts/test-paid-parse.sh"
   },
   "engines": {
     "node": ">=20"

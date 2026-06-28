@@ -62,3 +62,87 @@ export function buildWellKnownManifest() {
     tools: buildToolsManifest().tools
   };
 }
+
+/** x402 + OpenAPI-style discovery for Bazaar crawlers and agent routers. */
+export function buildX402WellKnownManifest() {
+  const manifest = buildToolsManifest();
+  return {
+    x402Version: 2,
+    service: config.serviceName,
+    description: manifest.description,
+    websiteUrl: config.publicUrl,
+    repository: 'https://github.com/pgalyen1987/NodeProxy',
+    mcpRegistry: 'io.github.pgalyen1987/nodeproxy',
+    packages: {
+      pypi: { name: 'nodeproxy-tools', extras: ['x402', 'langchain'] }
+    },
+    payments: manifest.payments,
+    resources: [
+      {
+        type: 'mcp',
+        url: `${config.publicUrl}/mcp/execute`,
+        transport: `${config.publicUrl}/mcp`,
+        toolName: TOOL_NAME,
+        description: TOOL_DESCRIPTION,
+        inputSchema: toolInputSchema,
+        pricing: { amountUsdc: config.priceUsdc, network: config.network }
+      }
+    ],
+    discovery: manifest.discovery
+  };
+}
+
+/** Compact agent routing card for LLM tool-matching and MCP clients. */
+export function buildAgentDiscoveryCard() {
+  return {
+    name: config.serviceName,
+    version: '1.0.0',
+    description: TOOL_DESCRIPTION,
+    capabilities: ['web-fetch', 'markdown-extraction', 'x402-micropayment'],
+    tools: [
+      {
+        name: TOOL_NAME,
+        description: TOOL_DESCRIPTION,
+        endpoint: `${config.publicUrl}/mcp/execute`,
+        mcpTransport: `${config.publicUrl}/mcp`,
+        inputSchema: toolInputSchema,
+        payment: {
+          protocol: 'x402',
+          priceUsdc: config.priceUsdc,
+          network: config.network,
+          payTo: config.walletAddress
+        }
+      }
+    ],
+    install: {
+      pip: 'pip install "nodeproxy-tools[x402,langchain]"',
+      mcpRemote: `${config.publicUrl}/mcp`,
+      env: ['EVM_PRIVATE_KEY']
+    },
+    links: {
+      health: `${config.publicUrl}/health`,
+      tools: `${config.publicUrl}/mcp/tools`,
+      wellKnownMcp: `${config.publicUrl}/.well-known/mcp.json`,
+      wellKnownX402: `${config.publicUrl}/.well-known/x402.json`,
+      mcpRegistry: 'io.github.pgalyen1987/nodeproxy'
+    }
+  };
+}
+
+export function buildRobotsTxt(): string {
+  return `# NodeProxy — machine discovery (autonomous agents / MCP crawlers)
+User-agent: *
+Allow: /.well-known/
+Allow: /discovery/
+Allow: /mcp/tools
+Allow: /registry/
+Allow: /health
+Disallow: /mcp/execute
+
+# Discovery endpoints
+# MCP registry: io.github.pgalyen1987/nodeproxy
+# Well-known MCP: ${config.publicUrl}/.well-known/mcp.json
+# Well-known x402: ${config.publicUrl}/.well-known/x402.json
+# Agent card: ${config.publicUrl}/discovery/agent.json
+`;
+}

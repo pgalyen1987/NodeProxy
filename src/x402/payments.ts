@@ -106,7 +106,14 @@ export async function verifyAndSettleToolPayment(
     resourceServer.findMatchingRequirements(requirements, payload) ||
     requirements[0];
 
-  const verify = await resourceServer.verifyPayment(payload, requirement, undefined, context);
+  let verify;
+  try {
+    verify = await resourceServer.verifyPayment(payload, requirement, undefined, context);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Payment verification failed';
+    return { ok: false as const, status: 402, message };
+  }
+
   if (!verify.isValid) {
     return {
       ok: false as const,

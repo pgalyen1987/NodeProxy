@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { config, TOOL_NAME } from '../config.js';
-import { buildToolsManifest, buildWellKnownManifest } from '../discovery/manifest.js';
+import { buildToolsManifest, buildWellKnownManifest, buildX402WellKnownManifest, buildAgentDiscoveryCard, buildRobotsTxt } from '../discovery/manifest.js';
 import { parseSurface, UrlSafetyError } from '../parser/surface.js';
 import {
   consumeProof,
@@ -50,7 +50,10 @@ export function createHttpApp() {
   );
 
   app.get('/.well-known/mcp.json', (c) => c.json(buildWellKnownManifest()));
+  app.get('/.well-known/x402.json', (c) => c.json(buildX402WellKnownManifest()));
   app.get('/discovery/manifest.json', (c) => c.json(buildToolsManifest()));
+  app.get('/discovery/agent.json', (c) => c.json(buildAgentDiscoveryCard()));
+  app.get('/robots.txt', (c) => c.text(buildRobotsTxt(), 200, { 'Content-Type': 'text/plain; charset=utf-8' }));
 
   app.get('/mcp/tools', (c) => {
     const manifest = buildToolsManifest();
@@ -64,75 +67,83 @@ export function createHttpApp() {
   });
 
   app.post('/mcp/execute', async (c) => {
-    const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || c.req.header('x-real-ip');
-    if (isRateLimited(rateLimitKey(ip, c.req.header('user-agent') || 'anon'))) {
-      return c.json({ error: 'Rate limit exceeded' }, 429);
-    }
-
-    await ensureX402Ready();
-
-    let body: { tool?: string; arguments?: { url?: string } };
     try {
-      body = await c.req.json();
-    } catch {
-      return c.json({ error: 'Invalid JSON body' }, 400);
-    }
+      const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || c.req.header('x-real-ip');
+      if (isRateLimited(rateLimitKey(ip, c.req.header('user-agent') || 'anon'))) {
+        return c.json({ error: 'Rate limit exceeded' }, 429);
+      }
 
-    if (body.tool !== TOOL_NAME || !body.arguments?.url) {
-      return c.json({ error: 'Invalid tool routing parameters.' }, 400);
-    }
+      await ensureX402Ready();
 
-    const context = buildRequestContext(c);
-    const resourceUrl = `${config.publicUrl}/mcp/execute`;
-    const signature = c.req.header('payment-signature') || c.req.header('PAYMENT-SIGNATURE');
+      let body: { tool?: string; arguments?: { url?: string } };
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.json({ error: 'Invalid JSON body' }, 400);
+      }
 
-    if (!signature) {
-      const { paymentRequired } = await createToolPaymentChallenge(context, resourceUrl, bazaarExtensions);
-      return c.json(
-        {
-          error: 'Payment Required',
-          message: 'Valid x402 PAYMENT-SIGNATURE required.',
-          x402: paymentRequired
-        },
-        402,
-        { 'PAYMENT-REQUIRED': encodePaymentRequiredHeader(paymentRequired) }
-      );
-    }
+      if (body.tool !== TOOL_NAME || !body.arguments?.url) {
+        return c.json({ error: 'Invalid tool routing parameters.' }, 400);
+      }
 
-    if (!consumeProof(signature)) {
-      return c.json({ error: 'Payment proof already consumed' }, 409);
-    }
+      const context = buildRequestContext(c);
+      const resourceUrl = `${config.publicUrl}/mcp/execute`;
+      const signature = c.req.header('payment-signature') || c.req.header('PAYMENT-SIGNATURE');
 
-    const { requirements } = await createToolPaymentChallenge(context, resourceUrl, bazaarExtensions);
-    const settled = await verifyAndSettleToolPayment(context, signature, requirements);
+      if (!signature) {
+        const { paymentRequired } = await createToolPaymentChallenge(context, resourceUrl, bazaarExtensions);
+        return c.json(
+          {
+            error: 'Payment Required',
+            message: 'Valid x402 PAYMENT-SIGNATURE required.',
+            x402: paymentRequired
+          },
+          402,
+          { 'PAYMENT-REQUIRED': encodePaymentRequiredHeader(paymentRequired) }
+        );
+      }
 
-    if (!settled.ok) {
-      releaseProof(signature);
-      return c.json({ error: settled.message }, settled.status as 401 | 402);
-    }
+      if (!consumeProof(signature)) {
+        return c.json({ error: 'Payment proof already consumed' }, 409);
+      }
 
-    try {
-      const { markdown } = await parseSurface(body.arguments.url);
-      const headers: Record<string, string> = { ...settled.headers };
-      return c.json(
-        {
-          content: [{ type: 'text', text: markdown }],
-          settlement: { transaction: settled.transaction, network: config.network }
-        },
-        200,
-        headers
-      );
+      const { requirements } = await createToolPaymentChallenge(context, resourceUrl, bazaarExtensions);
+      const settled = await verifyAndSettleToolPayment(context, signature, requirements);
+
+      if (!settled.ok) {
+        releaseProof(signature);
+        return c.json({ error: settled.message }, settled.status as 401 | 402);
+      }
+
+      try {
+        const { markdown } = await parseSurface(body.arguments.url);
+        const headers: Record<string, string> = { ...settled.headers };
+        return c.json(
+          {
+            content: [{ type: 'text', text: markdown }],
+            settlement: { transaction: settled.transaction, network: config.network }
+          },
+          200,
+          headers
+        );
+      } catch (err) {
+        releaseProof(signature);
+        if (err instanceof UrlSafetyError) {
+          return c.json({ error: err.message }, 400);
+        }
+        if (err instanceof ConcurrencyError) {
+          return c.json({ error: err.message }, 503);
+        }
+        return c.json(
+          { error: err instanceof Error ? err.message : 'Parse failed' },
+          502
+        );
+      }
     } catch (err) {
-      releaseProof(signature);
-      if (err instanceof UrlSafetyError) {
-        return c.json({ error: err.message }, 400);
-      }
-      if (err instanceof ConcurrencyError) {
-        return c.json({ error: err.message }, 503);
-      }
+      console.error('[mcp/execute]', err);
       return c.json(
-        { error: err instanceof Error ? err.message : 'Parse failed' },
-        502
+        { error: err instanceof Error ? err.message : 'Internal Server Error' },
+        500
       );
     }
   });
