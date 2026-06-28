@@ -1,6 +1,7 @@
 {
   "name": "@nodeproxy/langchain",
-  "version": "0.1.3",
+  "version": "0.1.4",
+  "mcpName": "io.github.pgalyen1987/nodeproxy",
   "description": "LangChain.js tool wrapper for the NodeProxy x402 web surface markdown parser",
   "publishConfig": {
     "access": "public"
