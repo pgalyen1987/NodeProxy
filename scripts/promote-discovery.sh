@@ -92,7 +92,7 @@ echo ""
 echo "5. GitHub repo metadata (for crawlers + humans)"
 if command -v gh >/dev/null && gh auth status >/dev/null 2>&1; then
   gh repo edit "$GITHUB_REPO" \
-    --description "x402 MCP: public URLs → token-efficient Markdown for LLM agents. \$0.002 USDC/parse on Base." \
+    --description "x402 MCP: URLs → Markdown for agents. \$0.002 USDC on Base, Polygon, Arbitrum, Ethereum." \
     --homepage "$PUBLIC_URL" \
     --add-topic mcp --add-topic x402 --add-topic agents --add-topic langchain --add-topic web-scraping --add-topic markdown 2>/dev/null || true
   ok "GitHub description, homepage, topics updated"
