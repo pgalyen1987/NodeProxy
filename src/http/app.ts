@@ -28,124 +28,121 @@ import {
   TOOL_NAME,
   STEALTH_TOOL_NAME,
   TIMER_TOOL_NAME,
-  INBOX_TOOL_NAME,
   LOCK_TOOL_NAME,
   SECRET_TOOL_NAME,
   TOOL_DESCRIPTION,
-  TIMER_TOOL_DESCRIPTION,
-  INBOX_TOOL_DESCRIPTION,
-  LOCK_TOOL_DESCRIPTION,
-  SECRET_TOOL_DESCRIPTION,
-  stealthToolDescription,
   priceLabel,
   stealthPriceLabel
 } from '../tools.js';
 
+// HTTP-type discovery extensions: the Bazaar crawler POSTs the example body to the
+// resource URL and only indexes endpoints that answer 402. (MCP-type extensions —
+// passing toolName — are not probed and never index.)
 const standardBazaar = declareDiscoveryExtension({
-  toolName: TOOL_NAME,
-  description: 'Fetch any URL, strip scripts/ads/nav, return compressed semantic Markdown for LLM ingestion.',
-  transport: 'streamable-http',
+  bodyType: 'json',
+  input: { tool: TOOL_NAME, arguments: { url: 'https://example.com' } },
   inputSchema: {
     type: 'object',
-    properties: { url: { type: 'string', description: 'Public website URL to parse' } },
-    required: ['url']
+    properties: {
+      tool: { type: 'string' },
+      arguments: { type: 'object', properties: { url: { type: 'string', description: 'Public website URL to parse' } }, required: ['url'] }
+    },
+    required: ['arguments']
   },
   output: {
-    example: {
-      content: [{ type: 'text', text: '### SOURCE: https://example.com\n\n# Title\n\nBody text...' }]
-    }
+    example: { content: [{ type: 'text', text: '### SOURCE: https://example.com\n\n# Title\n\nBody text...' }] }
   }
 });
 
 const stealthBazaar = declareDiscoveryExtension({
-  toolName: STEALTH_TOOL_NAME,
-  description: stealthToolDescription(),
-  transport: 'streamable-http',
+  bodyType: 'json',
+  input: { tool: STEALTH_TOOL_NAME, arguments: { url: 'https://example.com' } },
   inputSchema: {
     type: 'object',
-    properties: { url: { type: 'string', description: 'Website URL to fetch via the hardened headless browser' } },
-    required: ['url']
+    properties: {
+      tool: { type: 'string' },
+      arguments: { type: 'object', properties: { url: { type: 'string', description: 'URL to fetch via the hardened headless browser' } }, required: ['url'] }
+    },
+    required: ['arguments']
   },
   output: {
-    example: {
-      content: [{ type: 'text', text: '### SOURCE: https://protected.example\n### RENDER: stealth\n\n# Title\n\nContent...' }]
-    }
+    example: { content: [{ type: 'text', text: '### SOURCE: https://protected.example\n### RENDER: stealth\n\n# Title\n\nContent...' }] }
   }
 });
 
 const timerBazaar = declareDiscoveryExtension({
-  toolName: TIMER_TOOL_NAME,
-  description: TIMER_TOOL_DESCRIPTION,
-  transport: 'streamable-http',
+  bodyType: 'json',
+  input: { arguments: { delay_seconds: 60, action: { method: 'POST', url: 'https://example.com/hook', body: {} } } },
   inputSchema: {
     type: 'object',
     properties: {
-      delay_seconds: { type: 'number', description: 'Seconds from now to fire (preferred).' },
-      fire_at: { type: 'number', description: 'Absolute fire time as epoch seconds (alternative to delay_seconds).' },
-      action: {
+      arguments: {
         type: 'object',
-        description: 'Execute this HTTP request at fire time and capture the response for polling.',
         properties: {
-          url: { type: 'string', description: 'Public HTTPS URL to call.' },
-          method: { type: 'string', enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'], description: 'HTTP method (default POST).' },
-          headers: { type: 'object', description: 'Optional request headers.' },
-          body: { description: 'Optional JSON request body.' }
-        },
-        required: ['url']
-      },
-      callback_url: { type: 'string', description: 'HTTPS URL to POST the payload (or action result) to at fire time (push). Omit for poll.' },
-      payload: { description: 'Arbitrary JSON delivered/held verbatim at fire time (when no action is given).' },
-      mode: { type: 'string', enum: ['push', 'poll'], description: 'For payload timers: push = POST to callback_url; poll = retrieve via GET /agent-timer/{id}.' }
+          delay_seconds: { type: 'number', description: 'Seconds from now to fire.' },
+          fire_at: { type: 'number', description: 'Absolute fire time (epoch seconds).' },
+          action: { type: 'object', description: 'HTTP request to execute at fire time; response captured for polling.' },
+          callback_url: { type: 'string', description: 'HTTPS URL to POST the payload/result to (push).' },
+          payload: { description: 'JSON delivered/held at fire time.' },
+          mode: { type: 'string', enum: ['push', 'poll'] }
+        }
+      }
     },
-    required: []
+    required: ['arguments']
   },
   output: {
-    example: {
-      timer: { id: 'b1f2…', kind: 'action', fire_at: 1751240000, status: 'pending', poll_url: 'https://…/agent-timer/b1f2…' }
-    }
+    example: { timer: { id: 'b1f2…', kind: 'action', fire_at: 1751240000, status: 'pending', poll_url: 'https://…/agent-timer/b1f2…' } }
   }
 });
 
 const inboxBazaar = declareDiscoveryExtension({
-  toolName: INBOX_TOOL_NAME,
-  description: INBOX_TOOL_DESCRIPTION,
-  transport: 'streamable-http',
-  inputSchema: { type: 'object', properties: {}, required: [] },
+  bodyType: 'json',
+  input: { arguments: {} },
+  inputSchema: { type: 'object', properties: { arguments: { type: 'object' } } },
   output: {
     example: { inbox: { id: 'a1…', ingest_url: 'https://…/agent-inbox/a1…/in', poll_url: 'https://…/agent-inbox/a1…' } }
   }
 });
 
 const lockBazaar = declareDiscoveryExtension({
-  toolName: LOCK_TOOL_NAME,
-  description: LOCK_TOOL_DESCRIPTION,
-  transport: 'streamable-http',
+  bodyType: 'json',
+  input: { arguments: { op: 'check', key: 'job:42' } },
   inputSchema: {
     type: 'object',
     properties: {
-      op: { type: 'string', enum: ['claim', 'release', 'check'], description: 'Lock operation.' },
-      key: { type: 'string', description: 'Lock key (the work item identifier).' },
-      ttl_seconds: { type: 'number', description: 'Lease length for claim.' },
-      token: { type: 'string', description: 'Token from claim, required for release.' }
+      arguments: {
+        type: 'object',
+        properties: {
+          op: { type: 'string', enum: ['claim', 'release', 'check'] },
+          key: { type: 'string', description: 'Lock key (work item identifier).' },
+          ttl_seconds: { type: 'number' },
+          token: { type: 'string' }
+        },
+        required: ['key']
+      }
     },
-    required: ['key']
+    required: ['arguments']
   },
   output: { example: { lock: { op: 'claim', key: 'job:42', acquired: true, token: 'c3…' } } }
 });
 
 const secretBazaar = declareDiscoveryExtension({
-  toolName: SECRET_TOOL_NAME,
-  description: SECRET_TOOL_DESCRIPTION,
-  transport: 'streamable-http',
+  bodyType: 'json',
+  input: { arguments: { op: 'store', secret: 'value' } },
   inputSchema: {
     type: 'object',
     properties: {
-      op: { type: 'string', enum: ['store', 'redeem'], description: 'store a secret or redeem-and-burn one.' },
-      secret: { type: 'string', description: 'Secret value to store.' },
-      ttl_seconds: { type: 'number', description: 'Expiry for stored secret.' },
-      token: { type: 'string', description: 'Token from store, required for redeem.' }
+      arguments: {
+        type: 'object',
+        properties: {
+          op: { type: 'string', enum: ['store', 'redeem'] },
+          secret: { type: 'string' },
+          ttl_seconds: { type: 'number' },
+          token: { type: 'string' }
+        }
+      }
     },
-    required: []
+    required: ['arguments']
   },
   output: { example: { secret: { op: 'store', token: 'd4…', expires_in: 3600 } } }
 });
