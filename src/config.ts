@@ -34,6 +34,24 @@ export interface TimerConfig {
   maxDeliveryAttempts: number;
 }
 
+export interface InboxConfig {
+  priceUsdc: number;
+  maxMessages: number;
+  maxBodyBytes: number;
+  ttlSeconds: number;
+}
+
+export interface LockConfig {
+  priceUsdc: number;
+  maxTtlSeconds: number;
+}
+
+export interface SecretConfig {
+  priceUsdc: number;
+  maxSecretBytes: number;
+  maxTtlSeconds: number;
+}
+
 export interface NetworkPaymentConfig {
   network: NetworkId;
   asset: string;
@@ -72,6 +90,9 @@ export interface AppConfig {
   mpp: MppConfig;
   stealth: StealthConfig;
   timer: TimerConfig;
+  inbox: InboxConfig;
+  lock: LockConfig;
+  secret: SecretConfig;
 }
 
 function envInt(name: string, fallback: number): number {
@@ -201,6 +222,21 @@ export const config: AppConfig = {
     maxResponseBytes: envInt('TIMER_MAX_RESPONSE_BYTES', 65_536),
     pollRetentionSeconds: envInt('TIMER_POLL_RETENTION_SECONDS', 3600),
     maxDeliveryAttempts: envInt('TIMER_MAX_DELIVERY_ATTEMPTS', 3)
+  },
+  inbox: {
+    priceUsdc: envFloat('INBOX_PRICE_USDC', 0.001),
+    maxMessages: envInt('INBOX_MAX_MESSAGES', 50),
+    maxBodyBytes: envInt('INBOX_MAX_BODY_BYTES', 65_536),
+    ttlSeconds: envInt('INBOX_TTL_SECONDS', 3600)
+  },
+  lock: {
+    priceUsdc: envFloat('LOCK_PRICE_USDC', 0.001),
+    maxTtlSeconds: envInt('LOCK_MAX_TTL_SECONDS', 86_400)
+  },
+  secret: {
+    priceUsdc: envFloat('SECRET_PRICE_USDC', 0.001),
+    maxSecretBytes: envInt('SECRET_MAX_BYTES', 16_384),
+    maxTtlSeconds: envInt('SECRET_MAX_TTL_SECONDS', 86_400)
   }
 };
 

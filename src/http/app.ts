@@ -20,12 +20,22 @@ import { handleToolExecute } from './toolExecute.js';
 import { createOpsRoutes } from '../billing/index.js';
 import { handleTimerCreate, handleTimerPoll } from '../timer/handler.js';
 import { startTimerScheduler } from '../timer/scheduler.js';
+import { handleInboxCreate, handleInboxIngest, handleInboxPoll } from '../agentkit/inbox.js';
+import { handleLock } from '../agentkit/lock.js';
+import { handleSecret } from '../agentkit/secret.js';
+import { emitChallenge } from '../agentkit/pay.js';
 import {
   TOOL_NAME,
   STEALTH_TOOL_NAME,
   TIMER_TOOL_NAME,
+  INBOX_TOOL_NAME,
+  LOCK_TOOL_NAME,
+  SECRET_TOOL_NAME,
   TOOL_DESCRIPTION,
   TIMER_TOOL_DESCRIPTION,
+  INBOX_TOOL_DESCRIPTION,
+  LOCK_TOOL_DESCRIPTION,
+  SECRET_TOOL_DESCRIPTION,
   stealthToolDescription,
   priceLabel,
   stealthPriceLabel
@@ -94,6 +104,50 @@ const timerBazaar = declareDiscoveryExtension({
       timer: { id: 'b1f2…', kind: 'action', fire_at: 1751240000, status: 'pending', poll_url: 'https://…/agent-timer/b1f2…' }
     }
   }
+});
+
+const inboxBazaar = declareDiscoveryExtension({
+  toolName: INBOX_TOOL_NAME,
+  description: INBOX_TOOL_DESCRIPTION,
+  transport: 'streamable-http',
+  inputSchema: { type: 'object', properties: {}, required: [] },
+  output: {
+    example: { inbox: { id: 'a1…', ingest_url: 'https://…/agent-inbox/a1…/in', poll_url: 'https://…/agent-inbox/a1…' } }
+  }
+});
+
+const lockBazaar = declareDiscoveryExtension({
+  toolName: LOCK_TOOL_NAME,
+  description: LOCK_TOOL_DESCRIPTION,
+  transport: 'streamable-http',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      op: { type: 'string', enum: ['claim', 'release', 'check'], description: 'Lock operation.' },
+      key: { type: 'string', description: 'Lock key (the work item identifier).' },
+      ttl_seconds: { type: 'number', description: 'Lease length for claim.' },
+      token: { type: 'string', description: 'Token from claim, required for release.' }
+    },
+    required: ['key']
+  },
+  output: { example: { lock: { op: 'claim', key: 'job:42', acquired: true, token: 'c3…' } } }
+});
+
+const secretBazaar = declareDiscoveryExtension({
+  toolName: SECRET_TOOL_NAME,
+  description: SECRET_TOOL_DESCRIPTION,
+  transport: 'streamable-http',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      op: { type: 'string', enum: ['store', 'redeem'], description: 'store a secret or redeem-and-burn one.' },
+      secret: { type: 'string', description: 'Secret value to store.' },
+      ttl_seconds: { type: 'number', description: 'Expiry for stored secret.' },
+      token: { type: 'string', description: 'Token from store, required for redeem.' }
+    },
+    required: []
+  },
+  output: { example: { secret: { op: 'store', token: 'd4…', expires_in: 3600 } } }
 });
 
 export function createHttpApp() {
@@ -278,6 +332,46 @@ export function createHttpApp() {
       return c.json({ error: err instanceof Error ? err.message : 'Internal Server Error' }, 500);
     }
   });
+
+  // --- Agent inbox (capture external pushes → pollable) ---
+  app.post('/agent-inbox', async (c) => {
+    try {
+      return await handleInboxCreate(c, inboxBazaar);
+    } catch (err) {
+      console.error('[agent-inbox]', err);
+      return c.json({ error: err instanceof Error ? err.message : 'Internal Server Error' }, 500);
+    }
+  });
+  app.post('/agent-inbox/:id/in', async (c) => handleInboxIngest(c));
+  app.get('/agent-inbox/:id', async (c) => handleInboxPoll(c));
+
+  // --- Agent lock / idempotency ---
+  app.post('/agent-lock', async (c) => {
+    try {
+      return await handleLock(c, lockBazaar);
+    } catch (err) {
+      console.error('[agent-lock]', err);
+      return c.json({ error: err instanceof Error ? err.message : 'Internal Server Error' }, 500);
+    }
+  });
+
+  // --- Agent one-time secret relay ---
+  app.post('/agent-secret', async (c) => {
+    try {
+      return await handleSecret(c, secretBazaar);
+    } catch (err) {
+      console.error('[agent-secret]', err);
+      return c.json({ error: err instanceof Error ? err.message : 'Internal Server Error' }, 500);
+    }
+  });
+
+  // --- GET discovery probes: return the x402 challenge instead of 404/405 so a
+  //     Bazaar crawler hitting the resource URL gets a valid 402 + extension. ---
+  app.get('/mcp/execute', (c) => emitChallenge(c, { tool: TOOL_NAME, resourcePath: '/mcp/execute', bazaar: standardBazaar }));
+  app.get('/stealth-scrape', (c) => emitChallenge(c, { tool: STEALTH_TOOL_NAME, resourcePath: '/stealth-scrape', bazaar: stealthBazaar }));
+  app.get('/agent-timer', (c) => emitChallenge(c, { tool: TIMER_TOOL_NAME, resourcePath: '/agent-timer', bazaar: timerBazaar }));
+  app.get('/agent-lock', (c) => emitChallenge(c, { tool: LOCK_TOOL_NAME, resourcePath: '/agent-lock', bazaar: lockBazaar }));
+  app.get('/agent-secret', (c) => emitChallenge(c, { tool: SECRET_TOOL_NAME, resourcePath: '/agent-secret', bazaar: secretBazaar }));
 
   void ensureX402Ready();
   startTimerScheduler();

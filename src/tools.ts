@@ -3,12 +3,24 @@ import { config } from './config.js';
 export const TOOL_NAME = 'surface_markdown_parser' as const;
 export const STEALTH_TOOL_NAME = 'stealth_markdown_parser' as const;
 export const TIMER_TOOL_NAME = 'agent_timer' as const;
+export const INBOX_TOOL_NAME = 'agent_inbox' as const;
+export const LOCK_TOOL_NAME = 'agent_lock' as const;
+export const SECRET_TOOL_NAME = 'agent_secret' as const;
 
 export const TOOL_DESCRIPTION =
   'Executes fetch on any public URL, strips scripts/ads/nav noise, and returns compressed semantic Markdown optimized for LLM token ingestion.';
 
 export const TIMER_TOOL_DESCRIPTION =
   'Schedule a future HTTP action or callback for autonomous agents. At a delay or a set time, either (a) execute an HTTP request you specify (method/url/headers/body) and capture the response for retrieval, or (b) deliver a JSON payload to your HTTPS callback URL (push) / hold it for polling. Lets agent loops defer and fire web actions without staying online or busy-polling.';
+
+export const INBOX_TOOL_DESCRIPTION =
+  'Ephemeral capture inbox for autonomous agents. Create a one-time ingest URL; anything POSTed to it (OAuth redirect, async job result, third-party webhook) is captured and held for you to poll. Bridges external pushes into pollable events for agents that have no public endpoint.';
+
+export const LOCK_TOOL_DESCRIPTION =
+  'Distributed lock / idempotency primitive for multi-agent swarms. claim(key) returns a token if free (with TTL); release(token) frees it; check(key) reports whether held. Stops multiple agents from double-processing the same work item.';
+
+export const SECRET_TOOL_DESCRIPTION =
+  'One-time secret relay for inter-agent handoff. store(secret) returns a token; redeem(token) returns the secret exactly once, then burns it. Pass credentials or short-lived values between agents without persisting them.';
 
 /** What the stealth tier can actually do right now, based on what is provisioned. */
 export function stealthCapabilities(): { proxy: boolean; captcha: boolean } {
@@ -44,28 +56,67 @@ export function stealthFeatures(): string[] {
   return features;
 }
 
-export type ToolName = typeof TOOL_NAME | typeof STEALTH_TOOL_NAME | typeof TIMER_TOOL_NAME;
+export type ToolName =
+  | typeof TOOL_NAME
+  | typeof STEALTH_TOOL_NAME
+  | typeof TIMER_TOOL_NAME
+  | typeof INBOX_TOOL_NAME
+  | typeof LOCK_TOOL_NAME
+  | typeof SECRET_TOOL_NAME;
 
 export function isStealthTool(tool: string | undefined): tool is typeof STEALTH_TOOL_NAME {
   return tool === STEALTH_TOOL_NAME;
 }
 
 export function priceForTool(tool: ToolName): number {
-  if (tool === STEALTH_TOOL_NAME) return config.stealth.priceUsdc;
-  if (tool === TIMER_TOOL_NAME) return config.timer.priceUsdc;
-  return config.priceUsdc;
+  switch (tool) {
+    case STEALTH_TOOL_NAME:
+      return config.stealth.priceUsdc;
+    case TIMER_TOOL_NAME:
+      return config.timer.priceUsdc;
+    case INBOX_TOOL_NAME:
+      return config.inbox.priceUsdc;
+    case LOCK_TOOL_NAME:
+      return config.lock.priceUsdc;
+    case SECRET_TOOL_NAME:
+      return config.secret.priceUsdc;
+    default:
+      return config.priceUsdc;
+  }
 }
 
 export function descriptionForTool(tool: ToolName): string {
-  if (tool === STEALTH_TOOL_NAME) return stealthToolDescription();
-  if (tool === TIMER_TOOL_NAME) return TIMER_TOOL_DESCRIPTION;
-  return TOOL_DESCRIPTION;
+  switch (tool) {
+    case STEALTH_TOOL_NAME:
+      return stealthToolDescription();
+    case TIMER_TOOL_NAME:
+      return TIMER_TOOL_DESCRIPTION;
+    case INBOX_TOOL_NAME:
+      return INBOX_TOOL_DESCRIPTION;
+    case LOCK_TOOL_NAME:
+      return LOCK_TOOL_DESCRIPTION;
+    case SECRET_TOOL_NAME:
+      return SECRET_TOOL_DESCRIPTION;
+    default:
+      return TOOL_DESCRIPTION;
+  }
 }
 
 export function executePathForTool(tool: ToolName): string {
-  if (tool === STEALTH_TOOL_NAME) return '/stealth-scrape';
-  if (tool === TIMER_TOOL_NAME) return '/agent-timer';
-  return '/mcp/execute';
+  switch (tool) {
+    case STEALTH_TOOL_NAME:
+      return '/stealth-scrape';
+    case TIMER_TOOL_NAME:
+      return '/agent-timer';
+    case INBOX_TOOL_NAME:
+      return '/agent-inbox';
+    case LOCK_TOOL_NAME:
+      return '/agent-lock';
+    case SECRET_TOOL_NAME:
+      return '/agent-secret';
+    default:
+      return '/mcp/execute';
+  }
 }
 
 export function priceLabelFor(usdc: number): string {

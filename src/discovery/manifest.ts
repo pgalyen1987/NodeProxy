@@ -4,11 +4,18 @@ import {
   TOOL_NAME,
   STEALTH_TOOL_NAME,
   TIMER_TOOL_NAME,
+  INBOX_TOOL_NAME,
+  LOCK_TOOL_NAME,
+  SECRET_TOOL_NAME,
   TOOL_DESCRIPTION,
   TIMER_TOOL_DESCRIPTION,
+  INBOX_TOOL_DESCRIPTION,
+  LOCK_TOOL_DESCRIPTION,
+  SECRET_TOOL_DESCRIPTION,
   stealthToolDescription,
   stealthFeatures,
   priceLabel,
+  priceLabelFor,
   stealthPriceLabel,
   timerPriceLabel
 } from '../tools.js';
@@ -92,6 +99,42 @@ function buildTimerPricing() {
   };
 }
 
+function buildAgentkitPricing(priceUsdc: number) {
+  return {
+    x402: {
+      amount: priceLabelFor(priceUsdc),
+      priceUsdc,
+      network: config.network,
+      networks: config.networks,
+      assets: config.networkPayments.map((n) => ({ network: n.network, asset: n.asset }))
+    }
+  };
+}
+
+export const inboxInputSchema = { type: 'object', properties: {}, required: [] } as const;
+
+export const lockInputSchema = {
+  type: 'object',
+  properties: {
+    op: { type: 'string', enum: ['claim', 'release', 'check'], description: 'Lock operation.' },
+    key: { type: 'string', description: 'Lock key (work item identifier).' },
+    ttl_seconds: { type: 'number', description: 'Lease length for claim.' },
+    token: { type: 'string', description: 'Token from claim, required for release.' }
+  },
+  required: ['key']
+} as const;
+
+export const secretInputSchema = {
+  type: 'object',
+  properties: {
+    op: { type: 'string', enum: ['store', 'redeem'], description: 'store a secret or redeem-and-burn one.' },
+    secret: { type: 'string', description: 'Secret value to store.' },
+    ttl_seconds: { type: 'number', description: 'Expiry for stored secret.' },
+    token: { type: 'string', description: 'Token from store, required for redeem.' }
+  },
+  required: []
+} as const;
+
 export function buildToolsManifest() {
   return {
     schema_version: '2024-11-05',
@@ -164,6 +207,27 @@ export function buildToolsManifest() {
         inputSchema: timerInputSchema,
         endpoint: `${config.publicUrl}/agent-timer`,
         pricing: buildTimerPricing()
+      },
+      {
+        name: INBOX_TOOL_NAME,
+        description: INBOX_TOOL_DESCRIPTION,
+        inputSchema: inboxInputSchema,
+        endpoint: `${config.publicUrl}/agent-inbox`,
+        pricing: buildAgentkitPricing(config.inbox.priceUsdc)
+      },
+      {
+        name: LOCK_TOOL_NAME,
+        description: LOCK_TOOL_DESCRIPTION,
+        inputSchema: lockInputSchema,
+        endpoint: `${config.publicUrl}/agent-lock`,
+        pricing: buildAgentkitPricing(config.lock.priceUsdc)
+      },
+      {
+        name: SECRET_TOOL_NAME,
+        description: SECRET_TOOL_DESCRIPTION,
+        inputSchema: secretInputSchema,
+        endpoint: `${config.publicUrl}/agent-secret`,
+        pricing: buildAgentkitPricing(config.secret.priceUsdc)
       }
     ],
     discovery: {
