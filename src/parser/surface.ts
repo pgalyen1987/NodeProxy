@@ -1,5 +1,6 @@
 import { JSDOM } from 'jsdom';
 import { config } from '../config.js';
+import { detectBotBlock, stealthHintPayload } from './botDetect.js';
 import { assertPublicUrl, UrlSafetyError } from '../lib/urlSafety.js';
 import { withParseSlot } from '../lib/guards.js';
 import { fetchRenderedHtml } from './playwrightFetch.js';
@@ -111,17 +112,30 @@ export function htmlToMarkdown(html: string, sourceUrl: string, render: RenderMo
 }
 
 async function fetchStaticHtml(url: string): Promise<string> {
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': 'NodeProxy/1.0 (+https://x402.org; LLM surface parser)',
-      Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8'
-    },
-    redirect: 'follow',
-    signal: AbortSignal.timeout(25_000)
-  });
+  // Follow redirects manually so each hop is re-validated against the SSRF guard —
+  // otherwise a public URL could 30x-redirect into a private/metadata address.
+  let current = assertPublicUrl(url).toString();
+  let response: Response | undefined;
+  for (let hop = 0; hop < 6; hop++) {
+    response = await fetch(current, {
+      headers: {
+        'User-Agent': 'NodeProxy/1.0 (+https://x402.org; LLM surface parser)',
+        Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8'
+      },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(25_000)
+    });
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location');
+      if (!location) break;
+      current = assertPublicUrl(new URL(location, current).toString()).toString();
+      continue;
+    }
+    break;
+  }
 
-  if (!response.ok) {
-    throw new Error(`Upstream HTTP ${response.status}`);
+  if (!response || !response.ok) {
+    throw new Error(`Upstream HTTP ${response?.status ?? 'unreachable'}`);
   }
 
   const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
@@ -145,26 +159,47 @@ function assertHtmlSize(html: string): void {
 
 export async function parseSurface(
   url: string
-): Promise<{ markdown: string; bytes: number; render: RenderMode }> {
+): Promise<{ markdown: string; bytes: number; render: RenderMode; stealthHint?: ReturnType<typeof stealthHintPayload> }> {
   return withParseSlot(async () => {
     assertPublicUrl(url);
+
+    const finish = (
+      markdown: string,
+      render: RenderMode,
+      htmlForDetect?: string
+    ) => {
+      let stealthHint: ReturnType<typeof stealthHintPayload> | undefined;
+      if (htmlForDetect) {
+        const detection = detectBotBlock(htmlForDetect);
+        if (detection.blocked || isThinMarkdown(markdown)) {
+          stealthHint = stealthHintPayload(
+            config.publicUrl,
+            detection.blocked
+              ? `Anti-bot wall detected (${detection.kind || 'unknown'})`
+              : 'Thin content — page may require stealth rendering',
+            config.stealth.priceUsdc
+          );
+        }
+      }
+      return { markdown, bytes: markdown.length, render, stealthHint };
+    };
 
     if (config.renderEngine === 'playwright') {
       const html = await fetchRenderedHtml(url);
       assertHtmlSize(html);
       const markdown = htmlToMarkdown(html, url, 'playwright');
-      return { markdown, bytes: markdown.length, render: 'playwright' as const };
+      return finish(markdown, 'playwright', html);
     }
 
     const staticHtml = await fetchStaticHtml(url);
     const jsdomMarkdown = htmlToMarkdown(staticHtml, url, 'jsdom');
 
     if (config.renderEngine === 'jsdom') {
-      return { markdown: jsdomMarkdown, bytes: jsdomMarkdown.length, render: 'jsdom' as const };
+      return finish(jsdomMarkdown, 'jsdom', staticHtml);
     }
 
     if (!isThinMarkdown(jsdomMarkdown)) {
-      return { markdown: jsdomMarkdown, bytes: jsdomMarkdown.length, render: 'jsdom' as const };
+      return finish(jsdomMarkdown, 'jsdom', staticHtml);
     }
 
     try {
@@ -172,13 +207,13 @@ export async function parseSurface(
       assertHtmlSize(renderedHtml);
       const playwrightMarkdown = htmlToMarkdown(renderedHtml, url, 'playwright');
       if (contentWeight(playwrightMarkdown) >= contentWeight(jsdomMarkdown)) {
-        return { markdown: playwrightMarkdown, bytes: playwrightMarkdown.length, render: 'playwright' as const };
+        return finish(playwrightMarkdown, 'playwright', renderedHtml);
       }
     } catch (err) {
       console.warn('[nodeproxy] Playwright fallback failed:', err instanceof Error ? err.message : err);
     }
 
-    return { markdown: jsdomMarkdown, bytes: jsdomMarkdown.length, render: 'jsdom' as const };
+    return finish(jsdomMarkdown, 'jsdom', staticHtml);
   });
 }
 

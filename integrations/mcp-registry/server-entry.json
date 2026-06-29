@@ -2,8 +2,8 @@
   "$schema": "https://modelcontextprotocol.io/schemas/registry/v1/server.schema.json",
   "name": "nodeproxy",
   "title": "NodeProxy Web Surface Markdown Parser",
-  "description": "x402-gated MCP server that fetches public URLs, strips scripts/ads/nav, and returns compressed Markdown optimized for LLM token ingestion.",
-  "version": "1.0.0",
+  "description": "x402-gated MCP server that fetches public URLs, strips scripts/ads/nav, and returns compressed Markdown optimized for LLM token ingestion. Includes a stealth anti-bot tier for protected sites.",
+  "version": "1.1.0",
   "websiteUrl": "https://github.com/pgalyen1987/NodeProxy",
   "repository": {
     "url": "https://github.com/pgalyen1987/NodeProxy",
@@ -16,17 +16,41 @@
   "toolsUrl": "https://nodeproxy-production.up.railway.app/mcp/tools",
   "wellKnownUrl": "https://nodeproxy-production.up.railway.app/.well-known/mcp.json",
   "healthUrl": "https://nodeproxy-production.up.railway.app/health",
-  "tags": ["web", "scrape", "markdown", "llm", "parser", "x402", "mcp"],
+  "tags": ["web", "scrape", "markdown", "llm", "parser", "x402", "mpp", "mcp", "stealth", "bazaar"],
   "pricing": {
-    "model": "x402",
-    "currency": "USDC",
-    "amount": 0.002,
-    "network": "eip155:84532"
+    "protocols": ["x402", "mpp"],
+    "x402": {
+      "currency": "USDC",
+      "network": "eip155:8453",
+      "networks": ["eip155:8453", "eip155:137", "eip155:42161", "eip155:1"],
+      "tools": {
+        "surface_markdown_parser": { "amountUsdc": 0.002, "endpoint": "/mcp/execute" },
+        "stealth_markdown_parser": { "amountUsdc": 0.05, "endpoint": "/stealth-scrape" }
+      }
+    },
+    "mpp": {
+      "method": "stripe/charge",
+      "amountUsd": 0.5,
+      "currency": "usd",
+      "scope": "POST /mcp/execute"
+    }
   },
   "tools": [
     {
       "name": "surface_markdown_parser",
-      "description": "Executes fetch on any public URL, strips scripts/ads/nav noise, and returns compressed semantic Markdown optimized for LLM token ingestion."
+      "description": "Executes fetch on any public URL, strips scripts/ads/nav noise, and returns compressed semantic Markdown optimized for LLM token ingestion.",
+      "endpoint": "https://nodeproxy-production.up.railway.app/mcp/execute"
+    },
+    {
+      "name": "stealth_markdown_parser",
+      "description": "Anti-bot stealth fetch: residential proxy rotation, hardened Playwright, optional CAPTCHA solving. Returns fully rendered Markdown from Cloudflare/Akamai-protected pages.",
+      "endpoint": "https://nodeproxy-production.up.railway.app/stealth-scrape"
     }
-  ]
+  ],
+  "discovery": {
+    "bazaar": true,
+    "wellKnownX402": "https://nodeproxy-production.up.railway.app/.well-known/x402.json",
+    "wellKnownMpp": "https://nodeproxy-production.up.railway.app/.well-known/mpp.json",
+    "mcpRegistry": "io.github.pgalyen1987/nodeproxy"
+  }
 }

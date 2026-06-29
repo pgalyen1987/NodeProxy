@@ -9,6 +9,13 @@ export interface ResolvedParse {
   cache: CacheStatus;
   render: 'jsdom' | 'playwright';
   cachedAt?: string;
+  stealthHint?: {
+    tool: string;
+    endpoint: string;
+    executeEndpoint: string;
+    priceUsdc: number;
+    reason: string;
+  };
 }
 
 /**
@@ -28,7 +35,7 @@ export async function resolveSurfaceMarkdown(url: string): Promise<ResolvedParse
     };
   }
 
-  const { markdown, bytes, render } = await parseSurface(url);
+  const { markdown, bytes, render, stealthHint } = await parseSurface(url);
   await setCachedParse(url, markdown, bytes);
-  return { markdown, bytes, cache: 'MISS', render };
+  return { markdown, bytes, cache: 'MISS', render, stealthHint };
 }

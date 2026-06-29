@@ -2,40 +2,44 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { createPaymentWrapper } from '@x402/mcp';
 import { declareDiscoveryExtension } from '@x402/extensions/bazaar';
 import { z } from 'zod';
-import { config, priceLabel, TOOL_DESCRIPTION, TOOL_NAME } from '../config.js';
+import { config } from '../config.js';
 import { UrlSafetyError } from '../parser/surface.js';
 import { resolveSurfaceMarkdown } from '../parser/resolve.js';
+import { resolveStealthMarkdown } from '../parser/stealthResolve.js';
+import { StealthBlockedError } from '../parser/stealthSurface.js';
 import { ensureX402Ready, resourceServer } from '../x402/payments.js';
 import { networkPaymentOptions } from '../x402/networks.js';
 import { resolvePayment } from '../x402/negotiate.js';
+import {
+  TOOL_NAME,
+  STEALTH_TOOL_NAME,
+  TOOL_DESCRIPTION,
+  STEALTH_TOOL_DESCRIPTION,
+  priceLabel,
+  stealthPriceLabel
+} from '../tools.js';
 
-let acceptsCache: Awaited<ReturnType<typeof resourceServer.buildPaymentRequirementsFromOptions>> | null = null;
-
-async function getAccepts() {
-  if (!acceptsCache) {
-    await ensureX402Ready();
-    const resolved = await resolvePayment({ mode: 'auto' });
-    acceptsCache = await resourceServer.buildPaymentRequirementsFromOptions(
-      networkPaymentOptions(
-        [resolved.network],
-        config.walletAddress || '0x0000000000000000000000000000000000000000',
-        config.priceUsdc
-      ),
-      {}
-    );
-  }
-  return acceptsCache;
+async function buildAccepts(priceUsdc: number) {
+  await ensureX402Ready();
+  const resolved = await resolvePayment({ mode: 'auto' }, priceUsdc);
+  return resourceServer.buildPaymentRequirementsFromOptions(
+    networkPaymentOptions(
+      [resolved.network],
+      config.walletAddress || '0x0000000000000000000000000000000000000000',
+      config.solanaWalletAddress,
+      priceUsdc
+    ),
+    {}
+  );
 }
 
-const bazaarExtensions = declareDiscoveryExtension({
+const standardBazaar = declareDiscoveryExtension({
   toolName: TOOL_NAME,
   description: TOOL_DESCRIPTION,
   transport: 'streamable-http',
   inputSchema: {
     type: 'object',
-    properties: {
-      url: { type: 'string', description: 'Public website URL to parse into Markdown' }
-    },
+    properties: { url: { type: 'string', description: 'Public website URL to parse into Markdown' } },
     required: ['url']
   },
   output: {
@@ -45,11 +49,30 @@ const bazaarExtensions = declareDiscoveryExtension({
   }
 });
 
-export async function createMcpServer(): Promise<McpServer> {
-  const accepts = await getAccepts();
+const stealthBazaar = declareDiscoveryExtension({
+  toolName: STEALTH_TOOL_NAME,
+  description: STEALTH_TOOL_DESCRIPTION,
+  transport: 'streamable-http',
+  inputSchema: {
+    type: 'object',
+    properties: { url: { type: 'string', description: 'Protected URL for stealth Markdown extraction' } },
+    required: ['url']
+  },
+  output: {
+    example: {
+      content: [{ type: 'text', text: '### SOURCE: https://protected.example\n### RENDER: stealth\n\n# Title\n\n...' }]
+    }
+  }
+});
 
-  const paid = createPaymentWrapper(resourceServer, {
-    accepts,
+export async function createMcpServer(): Promise<McpServer> {
+  const [standardAccepts, stealthAccepts] = await Promise.all([
+    buildAccepts(config.priceUsdc),
+    buildAccepts(config.stealth.priceUsdc)
+  ]);
+
+  const standardPaid = createPaymentWrapper(resourceServer, {
+    accepts: standardAccepts,
     resource: {
       url: `mcp://tool/${TOOL_NAME}`,
       description: TOOL_DESCRIPTION,
@@ -57,22 +80,33 @@ export async function createMcpServer(): Promise<McpServer> {
       serviceName: config.serviceName,
       tags: config.serviceTags
     },
-    extensions: bazaarExtensions
+    extensions: standardBazaar
+  });
+
+  const stealthPaid = createPaymentWrapper(resourceServer, {
+    accepts: stealthAccepts,
+    resource: {
+      url: `mcp://tool/${STEALTH_TOOL_NAME}`,
+      description: STEALTH_TOOL_DESCRIPTION,
+      mimeType: 'application/json',
+      serviceName: config.serviceName,
+      tags: [...config.serviceTags, 'stealth', 'anti-bot']
+    },
+    extensions: stealthBazaar
   });
 
   const server = new McpServer(
     {
       name: config.serviceName,
-      version: '1.0.0'
+      version: '1.1.0'
     },
     {
-      capabilities: {
-        tools: {}
-      },
+      capabilities: { tools: {} },
       instructions:
-        'Paid x402 web surface parser. Call surface_markdown_parser with a public URL to receive token-efficient Markdown. Payment is USDC via x402; the server auto-selects network (Base default, or pass paymentNetwork / payerAddress). Supported networks: ' +
-        config.networks.join(', ') +
-        '.'
+        `Paid x402 web surface parser. Tools:\n` +
+        `- ${TOOL_NAME}: ${priceLabel()} USDC — fast public page Markdown\n` +
+        `- ${STEALTH_TOOL_NAME}: ${stealthPriceLabel()} USDC — anti-bot stealth fetch with proxies/CAPTCHA\n` +
+        `Networks: ${config.networks.join(', ')}`
     }
   );
 
@@ -81,28 +115,45 @@ export async function createMcpServer(): Promise<McpServer> {
     {
       title: 'Web Surface Markdown Parser',
       description: `${TOOL_DESCRIPTION} Price: ${priceLabel()} USDC per call.`,
-      inputSchema: {
-        url: z.string().url().describe('Public http(s) URL to fetch and convert')
-      }
+      inputSchema: { url: z.string().url().describe('Public http(s) URL to fetch and convert') }
     },
-    paid(async ({ url }) => {
+    standardPaid(async ({ url }) => {
       try {
-        const { markdown, bytes, cache, render } = await resolveSurfaceMarkdown(url);
+        const { markdown, bytes, cache, render, stealthHint } = await resolveSurfaceMarkdown(url);
         return {
-          content: [
-            {
-              type: 'text',
-              text: markdown
-            }
-          ],
-          structuredContent: { source: url, bytes, cache, render }
+          content: [{ type: 'text', text: markdown }],
+          structuredContent: { source: url, bytes, cache, render, ...(stealthHint ? { stealthHint } : {}) }
         };
       } catch (err) {
         const message = err instanceof UrlSafetyError ? err.message : err instanceof Error ? err.message : 'Parse failed';
+        return { isError: true, content: [{ type: 'text', text: message }] };
+      }
+    })
+  );
+
+  server.registerTool(
+    STEALTH_TOOL_NAME,
+    {
+      title: 'Stealth Anti-Bot Markdown Parser',
+      description: `${STEALTH_TOOL_DESCRIPTION} Price: ${stealthPriceLabel()} USDC per call.`,
+      inputSchema: { url: z.string().url().describe('Protected http(s) URL to fetch via stealth pipeline') }
+    },
+    stealthPaid(async ({ url }) => {
+      try {
+        const { markdown, bytes, cache, render, proxyUsed, captchaSolved, attempts } =
+          await resolveStealthMarkdown(url);
         return {
-          isError: true,
-          content: [{ type: 'text', text: message }]
+          content: [{ type: 'text', text: markdown }],
+          structuredContent: { source: url, bytes, cache, render, proxyUsed, captchaSolved, attempts }
         };
+      } catch (err) {
+        const message =
+          err instanceof UrlSafetyError || err instanceof StealthBlockedError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : 'Stealth parse failed';
+        return { isError: true, content: [{ type: 'text', text: message }] };
       }
     })
   );

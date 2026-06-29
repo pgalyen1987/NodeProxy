@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nodeproxy-tools"
-version = "0.1.2"
-description = "LangChain/CrewAI integrations for the NodeProxy x402 web surface markdown parser"
+version = "0.2.0"
+description = "Python clients for NodeProxy, TokenSqueezer, and VectorCache x402 agent APIs"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "pgalyen1987", email = "pgalyen87@gmail.com" }]
-keywords = ["langchain", "crewai", "mcp", "x402", "web-scraping", "markdown", "agents"]
+keywords = ["langchain", "crewai", "mcp", "x402", "web-scraping", "markdown", "agents", "tokensqueezer", "vectorcache"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
@@ -24,21 +24,36 @@ dependencies = [
 
 [project.optional-dependencies]
 x402 = [
-  "x402[requests,evm]>=2.0",
+  "x402[requests,evm,svm]>=2.0",
   "eth-account>=0.10",
+  "solders>=0.26",
 ]
 langchain = [
   "langchain-core>=0.2",
-  "x402[requests,evm]>=2.0",
+  "x402[requests,evm,svm]>=2.0",
   "eth-account>=0.10",
+  "solders>=0.26",
 ]
 crewai = [
   "crewai>=0.80",
-  "x402[requests,evm]>=2.0",
+  "x402[requests,evm,svm]>=2.0",
   "eth-account>=0.10",
+  "solders>=0.26",
+]
+tokensqueezer = [
+  "langchain-core>=0.2",
+  "x402[requests,evm,svm]>=2.0",
+  "eth-account>=0.10",
+  "solders>=0.26",
+]
+vectorcache = [
+  "langchain-core>=0.2",
+  "x402[requests,evm,svm]>=2.0",
+  "eth-account>=0.10",
+  "solders>=0.26",
 ]
 all = [
-  "nodeproxy-tools[langchain,crewai]",
+  "nodeproxy-tools[langchain,crewai,tokensqueezer,vectorcache]",
 ]
 
 [project.urls]
@@ -48,7 +63,7 @@ Repository = "https://github.com/pgalyen1987/NodeProxy"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["nodeproxy_tools*"]
+include = ["nodeproxy_tools*", "tokensqueezer_tools*", "vectorcache_tools*"]
 
 [project.scripts]
 nodeproxy-parse = "nodeproxy_tools.cli:main"

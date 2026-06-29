@@ -1,4 +1,13 @@
-import { config, priceLabel, TOOL_DESCRIPTION, TOOL_NAME } from '../config.js';
+import { config } from '../config.js';
+import { mppSnapshot } from '../mpp/config.js';
+import {
+  TOOL_NAME,
+  STEALTH_TOOL_NAME,
+  TOOL_DESCRIPTION,
+  STEALTH_TOOL_DESCRIPTION,
+  priceLabel,
+  stealthPriceLabel
+} from '../tools.js';
 
 export const toolInputSchema = {
   type: 'object',
@@ -11,53 +20,104 @@ export const toolInputSchema = {
   required: ['url']
 } as const;
 
+function buildStandardPricing() {
+  return {
+    x402: {
+      amount: priceLabel(),
+      priceUsdc: config.priceUsdc,
+      network: config.network,
+      networks: config.networks,
+      assets: config.networkPayments.map((n) => ({ network: n.network, asset: n.asset }))
+    },
+    ...(config.mpp.enabled
+      ? {
+          mpp: {
+            method: 'stripe/charge',
+            amountUsd: config.mpp.stripeAmountUsd,
+            currency: config.mpp.stripeCurrency
+          }
+        }
+      : {})
+  };
+}
+
+function buildStealthPricing() {
+  return {
+    x402: {
+      amount: stealthPriceLabel(),
+      priceUsdc: config.stealth.priceUsdc,
+      network: config.network,
+      networks: config.networks,
+      assets: config.networkPayments.map((n) => ({ network: n.network, asset: n.asset }))
+    }
+  };
+}
+
 export function buildToolsManifest() {
   return {
     schema_version: '2024-11-05',
     name: config.serviceName,
     description:
-      'x402-gated MCP server. Parses bloated JS-heavy websites into token-efficient Markdown for autonomous agents.',
-    version: '1.0.0',
+      'x402-gated MCP server. Parses bloated JS-heavy websites into token-efficient Markdown for autonomous agents. Includes stealth anti-bot tier.',
+    version: '1.1.0',
     transport: {
       type: 'streamable-http',
       url: `${config.publicUrl}/mcp`
     },
     payments: {
-      protocol: 'x402',
-      currency: 'USDC',
-      autoNegotiation: {
-        enabled: true,
-        mode: 'auto',
-        selectionOrder: ['explicit header/body', 'payer USDC balance', 'Base default'],
-        payerHintFields: ['payerAddress', 'X-Payer-Address'],
-        networkHintFields: ['paymentNetwork', 'X-Payment-Network'],
-        allNetworksHeader: 'X-Payment-Options: all'
+      protocols: ['x402', ...(config.mpp.enabled ? ['mpp'] : [])],
+      x402: {
+        protocol: 'x402',
+        currency: 'USDC',
+        autoNegotiation: {
+          enabled: true,
+          mode: 'auto',
+          selectionOrder: ['explicit header/body', 'payer USDC balance', 'Base default'],
+          payerHintFields: ['payerAddress', 'X-Payer-Address'],
+          networkHintFields: ['paymentNetwork', 'X-Payment-Network'],
+          allNetworksHeader: 'X-Payment-Options: all'
+        },
+        network: config.network,
+        networks: config.networks,
+        networkOptions: config.networkPayments.map((n) => ({
+          network: n.network,
+          label: n.label,
+          asset: n.asset,
+          priceUsdc: config.priceUsdc,
+          payTo: n.payTo
+        })),
+        asset: config.usdcBase,
+        payTo: config.networkPayments[0]?.payTo || config.walletAddress,
+        facilitator: config.facilitatorUrl,
+        authHeader: 'PAYMENT-SIGNATURE'
       },
-      network: config.network,
-      networks: config.networks,
-      networkOptions: config.networkPayments.map((n) => ({
-        network: n.network,
-        label: n.label,
-        asset: n.asset,
-        priceUsdc: config.priceUsdc,
-        payTo: config.walletAddress
-      })),
-      asset: config.usdcBase,
-      priceUsdc: config.priceUsdc,
-      payTo: config.walletAddress,
-      facilitator: config.facilitatorUrl
+      ...(config.mpp.enabled
+        ? {
+            mpp: {
+              ...mppSnapshot(config.mpp),
+              executeScope: 'POST /mcp/execute',
+              authHeader: 'Authorization: Payment …',
+              createTokenUrl: `${config.publicUrl}/mpp/stripe/create-token`,
+              wellKnown: `${config.publicUrl}/.well-known/mpp.json`
+            }
+          }
+        : {})
     },
     tools: [
       {
         name: TOOL_NAME,
         description: TOOL_DESCRIPTION,
         inputSchema: toolInputSchema,
-        pricing: {
-          amount: priceLabel(),
-          network: config.network,
-          networks: config.networks,
-          assets: config.networkPayments.map((n) => ({ network: n.network, asset: n.asset }))
-        }
+        endpoint: `${config.publicUrl}/mcp/execute`,
+        pricing: buildStandardPricing()
+      },
+      {
+        name: STEALTH_TOOL_NAME,
+        description: STEALTH_TOOL_DESCRIPTION,
+        inputSchema: toolInputSchema,
+        endpoint: `${config.publicUrl}/stealth-scrape`,
+        pricing: buildStealthPricing(),
+        features: ['proxy-rotation', 'stealth-playwright', 'captcha-solving']
       }
     ],
     discovery: {
@@ -75,13 +135,13 @@ export function buildWellKnownManifest() {
     endpoints: {
       tools: `${config.publicUrl}/mcp/tools`,
       execute: `${config.publicUrl}/mcp/execute`,
+      stealthScrape: `${config.publicUrl}/stealth-scrape`,
       mcp: `${config.publicUrl}/mcp`
     },
     tools: buildToolsManifest().tools
   };
 }
 
-/** x402 + OpenAPI-style discovery for Bazaar crawlers and agent routers. */
 export function buildX402WellKnownManifest() {
   const manifest = buildToolsManifest();
   return {
@@ -104,8 +164,17 @@ export function buildX402WellKnownManifest() {
         toolName: TOOL_NAME,
         description: TOOL_DESCRIPTION,
         inputSchema: toolInputSchema,
+        pricing: { amountUsdc: config.priceUsdc, network: config.network, networks: config.networks }
+      },
+      {
+        type: 'mcp',
+        url: `${config.publicUrl}/stealth-scrape`,
+        transport: `${config.publicUrl}/mcp`,
+        toolName: STEALTH_TOOL_NAME,
+        description: STEALTH_TOOL_DESCRIPTION,
+        inputSchema: toolInputSchema,
         pricing: {
-          amountUsdc: config.priceUsdc,
+          amountUsdc: config.stealth.priceUsdc,
           network: config.network,
           networks: config.networks
         }
@@ -115,13 +184,47 @@ export function buildX402WellKnownManifest() {
   };
 }
 
-/** Compact agent routing card for LLM tool-matching and MCP clients. */
+export function buildMppWellKnownManifest() {
+  const manifest = buildToolsManifest();
+  return {
+    mppVersion: 1,
+    service: config.serviceName,
+    description: manifest.description,
+    websiteUrl: config.publicUrl,
+    realm: new URL(config.publicUrl).host,
+    execute: {
+      url: `${config.publicUrl}/mcp/execute`,
+      scope: 'POST /mcp/execute',
+      tool: TOOL_NAME
+    },
+    methods: [
+      {
+        method: 'stripe/charge',
+        intent: 'charge',
+        currency: config.mpp.stripeCurrency,
+        amountMinor: config.mpp.stripeAmountMinor,
+        amountUsd: config.mpp.stripeAmountUsd,
+        networkId: config.mpp.stripeNetworkId,
+        paymentMethodTypes: config.mpp.stripePaymentMethodTypes,
+        createTokenUrl: `${config.publicUrl}/mpp/stripe/create-token`
+      }
+    ],
+    payments: manifest.payments
+  };
+}
+
 export function buildAgentDiscoveryCard() {
   return {
     name: config.serviceName,
-    version: '1.0.0',
+    version: '1.1.0',
     description: TOOL_DESCRIPTION,
-    capabilities: ['web-fetch', 'markdown-extraction', 'x402-micropayment'],
+    capabilities: [
+      'web-fetch',
+      'markdown-extraction',
+      'x402-micropayment',
+      'stealth-anti-bot',
+      ...(config.mpp.enabled ? ['mpp-stripe'] : [])
+    ],
     tools: [
       {
         name: TOOL_NAME,
@@ -130,11 +233,41 @@ export function buildAgentDiscoveryCard() {
         mcpTransport: `${config.publicUrl}/mcp`,
         inputSchema: toolInputSchema,
         payment: {
-          protocol: 'x402',
-          priceUsdc: config.priceUsdc,
-          network: config.network,
-          networks: config.networks,
-          payTo: config.walletAddress
+          x402: {
+            protocol: 'x402',
+            priceUsdc: config.priceUsdc,
+            network: config.network,
+            networks: config.networks,
+            payTo: config.walletAddress,
+            payToSolana: config.solanaWalletAddress || null
+          },
+          ...(config.mpp.enabled
+            ? {
+                mpp: {
+                  protocol: 'mpp',
+                  method: 'stripe/charge',
+                  amountUsd: config.mpp.stripeAmountUsd,
+                  currency: config.mpp.stripeCurrency
+                }
+              }
+            : {})
+        }
+      },
+      {
+        name: STEALTH_TOOL_NAME,
+        description: STEALTH_TOOL_DESCRIPTION,
+        endpoint: `${config.publicUrl}/stealth-scrape`,
+        mcpTransport: `${config.publicUrl}/mcp`,
+        inputSchema: toolInputSchema,
+        payment: {
+          x402: {
+            protocol: 'x402',
+            priceUsdc: config.stealth.priceUsdc,
+            network: config.network,
+            networks: config.networks,
+            payTo: config.walletAddress,
+            payToSolana: config.solanaWalletAddress || null
+          }
         }
       }
     ],
@@ -147,8 +280,10 @@ export function buildAgentDiscoveryCard() {
     links: {
       health: `${config.publicUrl}/health`,
       tools: `${config.publicUrl}/mcp/tools`,
+      stealthScrape: `${config.publicUrl}/stealth-scrape`,
       wellKnownMcp: `${config.publicUrl}/.well-known/mcp.json`,
       wellKnownX402: `${config.publicUrl}/.well-known/x402.json`,
+      ...(config.mpp.enabled ? { wellKnownMpp: `${config.publicUrl}/.well-known/mpp.json` } : {}),
       mcpRegistry: 'io.github.pgalyen1987/nodeproxy'
     }
   };
@@ -163,11 +298,13 @@ Allow: /mcp/tools
 Allow: /registry/
 Allow: /health
 Disallow: /mcp/execute
+Disallow: /stealth-scrape
 
 # Discovery endpoints
 # MCP registry: io.github.pgalyen1987/nodeproxy
 # Well-known MCP: ${config.publicUrl}/.well-known/mcp.json
 # Well-known x402: ${config.publicUrl}/.well-known/x402.json
+# Stealth scrape: ${config.publicUrl}/stealth-scrape
 # Agent card: ${config.publicUrl}/discovery/agent.json
 `;
 }

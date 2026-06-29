@@ -1,7 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePaymentHints, resolvePayment } from '../src/x402/negotiate.js';
 import type { HTTPRequestContext } from '@x402/core/server';
+
+// config.ts reads the accepted-network list from the environment at import time,
+// and parsePaymentHints only honours networks in that list. Pin the list before
+// importing so the suite is hermetic regardless of the shell's env.
+process.env.X402_NETWORKS = 'eip155:8453,eip155:137,eip155:42161';
+const { parsePaymentHints, resolvePayment } = await import('../src/x402/negotiate.js');
 
 function mockContext(headers: Record<string, string> = {}): HTTPRequestContext {
   return {

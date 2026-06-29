@@ -37,10 +37,12 @@ class NodeProxyClient:
         *,
         api_url: str = DEFAULT_API_URL,
         evm_private_key: Optional[str] = None,
+        solana_private_key: Optional[str] = None,
         max_price_usdc: float = 0.05,
     ) -> None:
         self.api_url = api_url.rstrip("/")
         self.evm_private_key = evm_private_key or os.getenv("EVM_PRIVATE_KEY")
+        self.solana_private_key = solana_private_key or os.getenv("SOLANA_PRIVATE_KEY")
         self.max_price_usdc = max_price_usdc
         self._session = None
         self._x402_client = None
@@ -48,28 +50,21 @@ class NodeProxyClient:
     def _ensure_x402(self) -> None:
         if self._x402_client is not None:
             return
-        if not self.evm_private_key:
-            raise NodeProxyError(
-                "EVM_PRIVATE_KEY is required for paid NodeProxy calls. "
-                "Set the env var or pass evm_private_key= to NodeProxyClient()."
-            )
 
         try:
-            from eth_account import Account
-            from x402 import x402ClientSync
-            from x402.http.clients import x402_requests
-            from x402.mechanisms.evm import EthAccountSigner
-            from x402.mechanisms.evm.exact.register import register_exact_evm_client
+            from nodeproxy_tools.x402_setup import build_x402_session
         except ImportError as exc:
             raise NodeProxyError(
                 'Install x402 extras: pip install "nodeproxy-tools[x402]"'
             ) from exc
 
-        client = x402ClientSync()
-        account = Account.from_key(self.evm_private_key)
-        register_exact_evm_client(client, EthAccountSigner(account))
-        self._x402_client = client
-        self._session = x402_requests(client)
+        try:
+            self._x402_client, self._session = build_x402_session(
+                evm_private_key=self.evm_private_key,
+                solana_private_key=self.solana_private_key,
+            )
+        except (ImportError, ValueError) as exc:
+            raise NodeProxyError(str(exc)) from exc
 
     def parse_url(self, url: str) -> ParseResult:
         """Fetch *url* via NodeProxy and return cleaned Markdown."""

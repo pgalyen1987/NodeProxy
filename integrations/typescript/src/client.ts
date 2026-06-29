@@ -11,9 +11,12 @@ export interface ParseResult {
   network?: string;
 }
 
+import { createPaidFetch } from './x402-fetch.js';
+
 export interface NodeProxyClientOptions {
   apiUrl?: string;
   evmPrivateKey?: string;
+  solanaPrivateKey?: string;
 }
 
 export class NodeProxyError extends Error {
@@ -26,32 +29,25 @@ export class NodeProxyError extends Error {
 export class NodeProxyClient {
   private readonly apiUrl: string;
   private readonly evmPrivateKey?: string;
+  private readonly solanaPrivateKey?: string;
   private fetchFn: typeof fetch | null = null;
 
   constructor(options: NodeProxyClientOptions = {}) {
     this.apiUrl = (options.apiUrl ?? DEFAULT_API_URL).replace(/\/$/, '');
     this.evmPrivateKey = options.evmPrivateKey ?? process.env.EVM_PRIVATE_KEY;
+    this.solanaPrivateKey = options.solanaPrivateKey ?? process.env.SOLANA_PRIVATE_KEY;
   }
 
   private async getFetch(): Promise<typeof fetch> {
     if (this.fetchFn) return this.fetchFn;
-
-    if (!this.evmPrivateKey) {
-      throw new NodeProxyError(
-        'EVM_PRIVATE_KEY is required. Set the env var or pass evmPrivateKey to NodeProxyClient.'
-      );
+    try {
+      this.fetchFn = await createPaidFetch({
+        evmPrivateKey: this.evmPrivateKey,
+        solanaPrivateKey: this.solanaPrivateKey
+      });
+    } catch (err) {
+      throw new NodeProxyError(err instanceof Error ? err.message : String(err));
     }
-
-    const { wrapFetchWithPayment } = await import('@x402/fetch');
-    const { x402Client } = await import('@x402/core/client');
-    const { registerExactEvmScheme } = await import('@x402/evm/exact/client');
-    const { privateKeyToAccount } = await import('viem/accounts');
-
-    const client = new x402Client();
-    const account = privateKeyToAccount(this.evmPrivateKey as `0x${string}`);
-    registerExactEvmScheme(client, { signer: account });
-
-    this.fetchFn = wrapFetchWithPayment(fetch, client);
     return this.fetchFn;
   }
 

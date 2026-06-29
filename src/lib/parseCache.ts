@@ -19,8 +19,11 @@ function normalizeCacheUrl(raw: string): string {
   return u.href;
 }
 
-function cacheKey(url: string): string {
-  return `nodeproxy:parse:v1:${normalizeCacheUrl(url)}`;
+export type CacheTier = 'standard' | 'stealth';
+
+function cacheKey(url: string, tier: CacheTier = 'standard'): string {
+  const prefix = tier === 'stealth' ? 'nodeproxy:stealth:v1:' : 'nodeproxy:parse:v1:';
+  return `${prefix}${normalizeCacheUrl(url)}`;
 }
 
 async function connectRedis(): Promise<RedisClientType | null> {
@@ -86,10 +89,10 @@ export function cacheSnapshot() {
 }
 
 /** Only call after x402 settlement — never before payment verification. */
-export async function getCachedParse(url: string): Promise<CachedParse | null> {
+export async function getCachedParse(url: string, tier: CacheTier = 'standard'): Promise<CachedParse | null> {
   if (!config.cacheEnabled) return null;
 
-  const key = cacheKey(url);
+  const key = cacheKey(url, tier);
   const client = await connectRedis();
   if (client) {
     try {
@@ -105,7 +108,12 @@ export async function getCachedParse(url: string): Promise<CachedParse | null> {
 }
 
 /** Store a fresh parse result with TTL. */
-export async function setCachedParse(url: string, markdown: string, bytes: number): Promise<void> {
+export async function setCachedParse(
+  url: string,
+  markdown: string,
+  bytes: number,
+  tier: CacheTier = 'standard'
+): Promise<void> {
   if (!config.cacheEnabled) return;
 
   const entry: CachedParse = {
@@ -113,7 +121,7 @@ export async function setCachedParse(url: string, markdown: string, bytes: numbe
     bytes,
     cachedAt: new Date().toISOString()
   };
-  const key = cacheKey(url);
+  const key = cacheKey(url, tier);
   const client = await connectRedis();
   if (client) {
     try {

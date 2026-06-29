@@ -1,6 +1,13 @@
 import type { HTTPRequestContext } from '@x402/core/server';
 import { config, type NetworkId } from '../config.js';
-import { isKnownEvmNetwork, networkLabel, usdcForNetwork } from './networks.js';
+import {
+  isKnownEvmNetwork,
+  isKnownNetwork,
+  isKnownSolanaNetwork,
+  networkLabel,
+  SOLANA_RPC_BY_NETWORK,
+  usdcForNetwork
+} from './networks.js';
 
 export type PaymentSelectionSource = 'explicit' | 'payer-balance' | 'default';
 export type PaymentMode = 'auto' | 'all';
@@ -47,17 +54,28 @@ function header(context: HTTPRequestContext, name: string): string | undefined {
   return context.adapter.getHeader(titled);
 }
 
-function normalizeAddress(value: string | undefined): string | undefined {
+function normalizeEvmAddress(value: string | undefined): string | undefined {
   if (!value) return undefined;
   const trimmed = value.trim();
   if (!/^0x[a-fA-F0-9]{40}$/.test(trimmed)) return undefined;
   return trimmed;
 }
 
+function normalizeSolanaAddress(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(trimmed)) return undefined;
+  return trimmed;
+}
+
+function normalizePayerAddress(value: string | undefined): string | undefined {
+  return normalizeEvmAddress(value) || normalizeSolanaAddress(value);
+}
+
 function normalizeNetwork(value: string | undefined): NetworkId | undefined {
   if (!value) return undefined;
   const id = value.trim() as NetworkId;
-  if (!isKnownEvmNetwork(id)) return undefined;
+  if (!isKnownNetwork(id)) return undefined;
   if (!config.networks.includes(id)) return undefined;
   return id;
 }
@@ -77,13 +95,13 @@ export function parsePaymentHints(
     normalizeNetwork(typeof body?.network === 'string' ? body.network : undefined);
 
   const payerAddress =
-    normalizeAddress(header(context, 'x-payer-address')) ||
-    normalizeAddress(typeof body?.payerAddress === 'string' ? body.payerAddress : undefined);
+    normalizePayerAddress(header(context, 'x-payer-address')) ||
+    normalizePayerAddress(typeof body?.payerAddress === 'string' ? body.payerAddress : undefined);
 
   return { mode, preferredNetwork, payerAddress };
 }
 
-async function usdcBalanceAtomic(network: NetworkId, wallet: string): Promise<bigint> {
+async function evmUsdcBalanceAtomic(network: NetworkId, wallet: string): Promise<bigint> {
   const rpc = RPC_BY_NETWORK[network];
   if (!rpc) return 0n;
 
@@ -108,6 +126,39 @@ async function usdcBalanceAtomic(network: NetworkId, wallet: string): Promise<bi
   return BigInt(json.result);
 }
 
+async function solanaUsdcBalanceAtomic(network: NetworkId, owner: string): Promise<bigint> {
+  const rpc = SOLANA_RPC_BY_NETWORK[network];
+  if (!rpc) return 0n;
+  const mint = usdcForNetwork(network);
+  const res = await fetch(rpc, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'getTokenAccountsByOwner',
+      params: [owner, { mint }, { encoding: 'jsonParsed' }]
+    }),
+    signal: AbortSignal.timeout(4000)
+  });
+  if (!res.ok) return 0n;
+  const json = (await res.json()) as {
+    result?: { value?: Array<{ account?: { data?: { parsed?: { info?: { tokenAmount?: { amount?: string } } } } } }> };
+  };
+  let total = 0n;
+  for (const entry of json.result?.value || []) {
+    const amount = entry.account?.data?.parsed?.info?.tokenAmount?.amount;
+    if (amount) total += BigInt(amount);
+  }
+  return total;
+}
+
+async function usdcBalanceAtomic(network: NetworkId, wallet: string): Promise<bigint> {
+  if (isKnownSolanaNetwork(network)) return solanaUsdcBalanceAtomic(network, wallet);
+  if (isKnownEvmNetwork(network)) return evmUsdcBalanceAtomic(network, wallet);
+  return 0n;
+}
+
 async function pickNetworkByPayerBalance(
   payerAddress: string,
   minUsdc: number
@@ -117,7 +168,10 @@ async function pickNetworkByPayerBalance(
 
   if (!probeEnabled) return undefined;
 
+  const isEvmPayer = payerAddress.startsWith('0x');
   for (const network of config.networks) {
+    if (isEvmPayer && isKnownSolanaNetwork(network)) continue;
+    if (!isEvmPayer && isKnownEvmNetwork(network)) continue;
     try {
       const balance = await usdcBalanceAtomic(network, payerAddress);
       if (balance >= minAtomic) return network;
@@ -129,7 +183,10 @@ async function pickNetworkByPayerBalance(
   return undefined;
 }
 
-export async function resolvePayment(hints: PaymentHints): Promise<ResolvedPayment> {
+export async function resolvePayment(
+  hints: PaymentHints,
+  priceUsdc = config.priceUsdc
+): Promise<ResolvedPayment> {
   const alternatives = [...config.networks];
   let network = config.network;
   let selection: PaymentSelectionSource = 'default';
@@ -138,7 +195,7 @@ export async function resolvePayment(hints: PaymentHints): Promise<ResolvedPayme
     network = hints.preferredNetwork;
     selection = 'explicit';
   } else if (hints.payerAddress) {
-    const fromBalance = await pickNetworkByPayerBalance(hints.payerAddress, config.priceUsdc);
+    const fromBalance = await pickNetworkByPayerBalance(hints.payerAddress, priceUsdc);
     if (fromBalance) {
       network = fromBalance;
       selection = 'payer-balance';
@@ -149,20 +206,21 @@ export async function resolvePayment(hints: PaymentHints): Promise<ResolvedPayme
     network,
     currency: 'USDC',
     asset: usdcForNetwork(network),
-    amountUsdc: config.priceUsdc,
+    amountUsdc: priceUsdc,
     label: networkLabel(network),
     selection,
     alternatives: alternatives.filter((n) => n !== network)
   };
 }
 
-export function toPaymentSummary(resolved: ResolvedPayment) {
+export function toPaymentSummary(resolved: ResolvedPayment, priceUsdc?: number) {
+  const amount = priceUsdc ?? resolved.amountUsdc;
   return {
     network: resolved.network,
     label: resolved.label,
     currency: resolved.currency,
     asset: resolved.asset,
-    amountUsdc: resolved.amountUsdc,
+    amountUsdc: amount,
     selection: resolved.selection,
     alternatives: resolved.alternatives
   };

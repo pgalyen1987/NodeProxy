@@ -4,9 +4,12 @@ import {
   DEFAULT_MAINNET_NETWORKS,
   defaultMainnetNetworks,
   filterNetworksForFacilitator,
+  networkPaymentOptions,
   parseNetworkList,
-  usdcForNetwork
+  usdcForNetwork,
+  eip712ExtraForNetwork
 } from '../src/x402/networks.js';
+import { ExactEvmScheme } from '@x402/evm/exact/server';
 
 describe('parseNetworkList', () => {
   it('parses comma-separated networks and dedupes', () => {
@@ -55,6 +58,22 @@ describe('usdcForNetwork', () => {
     else delete process.env.FACILITATOR_URL;
     if (prevL1) process.env.ETHEREUM_L1_FACILITATOR_URL = prevL1;
     else delete process.env.ETHEREUM_L1_FACILITATOR_URL;
+  });
+
+  it('includes EIP-712 domain extra when building payment requirements', async () => {
+    const scheme = new ExactEvmScheme();
+    const [option] = networkPaymentOptions(
+      ['eip155:8453'],
+      '0x8E57BFDE053dBb6862991759c19affC5F383d5D0',
+      '',
+      0.002
+    );
+    const parsed = await scheme.parsePrice(option.price, option.network);
+    assert.equal(parsed.asset.toLowerCase(), usdcForNetwork('eip155:8453'));
+    assert.equal(parsed.amount, '2000');
+    assert.equal(parsed.extra?.name, 'USD Coin');
+    assert.equal(parsed.extra?.version, '2');
+    assert.deepEqual(eip712ExtraForNetwork('eip155:1'), { name: 'USD Coin', version: '2' });
   });
 
   it('filters Ethereum L1 when CDP-only without L1 facilitator', () => {

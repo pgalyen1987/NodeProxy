@@ -1,5 +1,11 @@
+import { getUsdcAddress } from '@x402/svm';
+import type { Network } from '@x402/core/types';
 import type { NetworkId } from '../config.js';
+import { getDefaultAsset } from '@x402/evm';
 import { ethereumL1FacilitatorUrl, usesDualFacilitator } from './facilitators.js';
+
+export const SOLANA_MAINNET_CAIP2 = 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp' as NetworkId;
+export const SOLANA_DEVNET_CAIP2 = 'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1' as NetworkId;
 
 /** Circle USDC (EIP-3009) by CAIP-2 network id. */
 export const USDC_BY_NETWORK: Record<string, string> = {
@@ -19,10 +25,11 @@ export const NETWORK_LABELS: Record<string, string> = {
   'eip155:137': 'Polygon',
   'eip155:42161': 'Arbitrum',
   'eip155:10': 'Optimism',
-  'eip155:480': 'World'
+  'eip155:480': 'World',
+  [SOLANA_MAINNET_CAIP2]: 'Solana',
+  [SOLANA_DEVNET_CAIP2]: 'Solana Devnet'
 };
 
-/** Networks settled by the CDP hosted facilitator (when CDP keys are set). */
 export const CDP_SUPPORTED_EVM_NETWORKS: NetworkId[] = [
   'eip155:8453',
   'eip155:137',
@@ -30,32 +37,87 @@ export const CDP_SUPPORTED_EVM_NETWORKS: NetworkId[] = [
   'eip155:480'
 ];
 
-/** Default production bundle — CDP EVM mainnets plus optional Ethereum L1 USDC. */
+export const CDP_SUPPORTED_SOLANA_NETWORKS: NetworkId[] = [SOLANA_MAINNET_CAIP2];
+
 export const DEFAULT_MAINNET_NETWORKS: NetworkId[] = [
   'eip155:8453',
   'eip155:137',
   'eip155:42161'
 ];
 
-export function defaultMainnetNetworks(includeEthereumL1: boolean): NetworkId[] {
-  if (!includeEthereumL1) return [...DEFAULT_MAINNET_NETWORKS];
-  return [...DEFAULT_MAINNET_NETWORKS, 'eip155:1'];
+export const SOLANA_RPC_BY_NETWORK: Partial<Record<NetworkId, string>> = {
+  [SOLANA_MAINNET_CAIP2]: 'https://api.mainnet-beta.solana.com',
+  [SOLANA_DEVNET_CAIP2]: 'https://api.devnet.solana.com'
+};
+
+export function solanaWalletFromEnv(): string {
+  return process.env.SOLANA_WALLET_ADDRESS?.trim() || '';
+}
+
+export function includeSolanaByDefault(): boolean {
+  if (process.env.X402_INCLUDE_SOLANA === '0') return false;
+  if (process.env.X402_INCLUDE_SOLANA === '1') return Boolean(solanaWalletFromEnv());
+  return Boolean(solanaWalletFromEnv());
+}
+
+export function defaultMainnetNetworks(includeEthereumL1: boolean, includeSolana = includeSolanaByDefault()): NetworkId[] {
+  const networks: NetworkId[] = [...DEFAULT_MAINNET_NETWORKS];
+  if (includeEthereumL1) networks.push('eip155:1');
+  if (includeSolana) networks.push(SOLANA_MAINNET_CAIP2);
+  return networks;
 }
 
 export function networkLabel(network: NetworkId): string {
   return NETWORK_LABELS[network] || network;
 }
 
-export function usdcForNetwork(network: NetworkId): string {
-  const asset = USDC_BY_NETWORK[network];
-  if (!asset) {
-    throw new Error(`Unsupported x402 network: ${network}. Add USDC address to USDC_BY_NETWORK.`);
-  }
-  return asset;
-}
-
 export function isKnownEvmNetwork(network: string): network is NetworkId {
   return network.startsWith('eip155:') && network in USDC_BY_NETWORK;
+}
+
+export function isKnownSolanaNetwork(network: string): network is NetworkId {
+  if (!network.startsWith('solana:')) return false;
+  try {
+    getUsdcAddress(network as Network);
+    return true;
+  } catch {
+    return network === SOLANA_MAINNET_CAIP2 || network === SOLANA_DEVNET_CAIP2;
+  }
+}
+
+export function isKnownNetwork(network: string): network is NetworkId {
+  return isKnownEvmNetwork(network) || isKnownSolanaNetwork(network);
+}
+
+export function usdcForNetwork(network: NetworkId): string {
+  if (isKnownEvmNetwork(network)) return USDC_BY_NETWORK[network]!;
+  if (isKnownSolanaNetwork(network)) return getUsdcAddress(network as Network);
+  throw new Error(`Unsupported x402 network: ${network}. Add USDC address to USDC_BY_NETWORK.`);
+}
+
+export function payToForNetwork(network: NetworkId, evmWallet: string, solanaWallet: string): string {
+  if (isKnownSolanaNetwork(network)) {
+    if (!solanaWallet) throw new Error(`SOLANA_WALLET_ADDRESS is required for ${network}`);
+    return solanaWallet;
+  }
+  return evmWallet;
+}
+
+const USDC_EIP712_EXTRA: Record<string, { name: string; version: string }> = {
+  'eip155:1': { name: 'USD Coin', version: '2' }
+};
+
+export function eip712ExtraForNetwork(network: NetworkId): { name: string; version: string } {
+  try {
+    const asset = getDefaultAsset(network);
+    return { name: asset.name, version: asset.version };
+  } catch {
+    const extra = USDC_EIP712_EXTRA[network];
+    if (!extra) {
+      throw new Error(`No EIP-712 domain metadata for network ${network}`);
+    }
+    return extra;
+  }
 }
 
 export function parseNetworkList(raw: string | undefined, fallback: NetworkId): NetworkId[] {
@@ -68,7 +130,7 @@ export function parseNetworkList(raw: string | undefined, fallback: NetworkId): 
   for (const part of source.split(',')) {
     const id = part.trim() as NetworkId;
     if (!id || seen.has(id)) continue;
-    if (!isKnownEvmNetwork(id)) {
+    if (!isKnownNetwork(id)) {
       throw new Error(`Unknown or unsupported X402 network: ${id}`);
     }
     seen.add(id);
@@ -84,41 +146,57 @@ export function parseNetworkList(raw: string | undefined, fallback: NetworkId): 
 
 export function networkPaymentOptions(
   networks: NetworkId[],
-  payTo: string,
+  evmPayTo: string,
+  solanaPayTo: string,
   priceUsdc: number,
   maxTimeoutSeconds = 300
 ) {
-  return networks.map((network) => ({
-    scheme: 'exact' as const,
-    network,
-    payTo,
-    price: {
-      amount: String(Math.round(priceUsdc * 1_000_000)),
-      asset: usdcForNetwork(network)
-    },
-    maxTimeoutSeconds
-  }));
+  return networks.map((network) => {
+    const base = {
+      scheme: 'exact' as const,
+      network,
+      payTo: payToForNetwork(network, evmPayTo, solanaPayTo),
+      price: {
+        amount: String(Math.max(1, Math.round(priceUsdc * 1_000_000))),
+        asset: usdcForNetwork(network)
+      },
+      maxTimeoutSeconds
+    };
+    if (!isKnownEvmNetwork(network)) return base;
+    return {
+      ...base,
+      price: {
+        ...base.price,
+        extra: eip712ExtraForNetwork(network)
+      }
+    };
+  });
 }
 
-/** Drop networks the active facilitator cannot settle (e.g. Ethereum L1 on CDP-only). */
 export function filterNetworksForFacilitator(networks: NetworkId[]): NetworkId[] {
   const customFacilitator = Boolean(process.env.FACILITATOR_URL?.trim());
   const usesCdp = Boolean(process.env.CDP_API_KEY_ID && process.env.CDP_API_KEY_SECRET && !customFacilitator);
+  const solanaWallet = solanaWalletFromEnv();
 
-  if (!usesCdp) return networks;
+  if (!usesCdp) {
+    return networks.filter((n) => !isKnownSolanaNetwork(n) || Boolean(solanaWallet));
+  }
 
-  const allowed = new Set<string>(CDP_SUPPORTED_EVM_NETWORKS);
+  const allowed = new Set<string>([...CDP_SUPPORTED_EVM_NETWORKS, ...CDP_SUPPORTED_SOLANA_NETWORKS]);
   if (usesDualFacilitator()) {
     allowed.add('eip155:1');
   }
 
-  const filtered = networks.filter((n) => allowed.has(n));
-  const dropped = networks.filter((n) => !allowed.has(n));
+  const filtered = networks.filter((n) => {
+    if (isKnownSolanaNetwork(n) && !solanaWallet) return false;
+    return allowed.has(n);
+  });
+  const dropped = networks.filter((n) => !filtered.includes(n));
 
   if (dropped.length > 0) {
     console.warn(
       `[nodeproxy] Dropped unsupported networks: ${dropped.join(', ')}. ` +
-        'Set FACILITATOR_URL or ETHEREUM_L1_FACILITATOR_URL to enable Ethereum mainnet USDC.'
+        'Set SOLANA_WALLET_ADDRESS for Solana or FACILITATOR_URL for custom settlement.'
     );
   }
 

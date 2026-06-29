@@ -2,6 +2,9 @@ import { serve } from '@hono/node-server';
 import { config } from './config.js';
 import { createHttpApp } from './http/app.js';
 import { ensureX402Ready } from './x402/payments.js';
+import { closePlaywrightBrowser } from './parser/playwrightFetch.js';
+import { closeStealthBrowser } from './parser/stealthFetch.js';
+import { closeParseCache } from './lib/parseCache.js';
 
 async function main() {
   if (!config.walletAddress) {
@@ -24,10 +27,20 @@ async function main() {
       console.log(`  MCP execute:   ${base}/mcp/execute`);
       console.log(`  MCP transport: ${base}/mcp`);
       console.log(`  Registry JSON: ${base}/registry/server.json`);
-      console.log(`  Price:         ${config.priceUsdc} USDC → ${config.walletAddress || '(unset)'}`);
+      console.log(`  Stealth scrape: ${base}/stealth-scrape`);
+      console.log(`  Price:         ${config.priceUsdc} USDC (standard) / ${config.stealth.priceUsdc} USDC (stealth)`);
+      console.log(`  Wallet (EVM):  ${config.walletAddress || '(unset)'}`);
+      console.log(`  Wallet (SOL):  ${config.solanaWalletAddress || '(unset)'}`);
       console.log(`  Networks:      ${config.networks.join(', ')}`);
     }
   );
+
+  const shutdown = async () => {
+    await Promise.all([closePlaywrightBrowser(), closeStealthBrowser(), closeParseCache()]);
+    process.exit(0);
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 }
 
 main().catch((err) => {

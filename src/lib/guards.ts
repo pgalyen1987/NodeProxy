@@ -41,6 +41,23 @@ export async function withParseSlot<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+let activeStealthParses = 0;
+
+export async function withStealthParseSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (activeStealthParses >= config.stealth.maxConcurrentParses) {
+    throw new ConcurrencyError();
+  }
+  activeStealthParses += 1;
+  try {
+    return await fn();
+  } finally {
+    activeStealthParses -= 1;
+  }
+}
+
 export function parseCapacitySnapshot() {
-  return { active: activeParses, max: config.maxConcurrentParses };
+  return {
+    standard: { active: activeParses, max: config.maxConcurrentParses },
+    stealth: { active: activeStealthParses, max: config.stealth.maxConcurrentParses }
+  };
 }

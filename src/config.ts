@@ -1,23 +1,34 @@
+import { buildMppConfig, type MppConfig } from './mpp/config.js';
 import {
   defaultMainnetNetworks,
   filterNetworksForFacilitator,
   networkLabel,
   parseNetworkList,
+  payToForNetwork,
+  solanaWalletFromEnv,
   usdcForNetwork
 } from './x402/networks.js';
 import { ethereumL1FacilitatorUrl } from './x402/facilitators.js';
 
 export type NetworkId = `eip155:${number}` | `solana:${string}`;
 
-export const TOOL_NAME = 'surface_markdown_parser' as const;
-
-export const TOOL_DESCRIPTION =
-  'Executes fetch on any public URL, strips scripts/ads/nav noise, and returns compressed semantic Markdown optimized for LLM token ingestion.';
+export interface StealthConfig {
+  priceUsdc: number;
+  maxConcurrentParses: number;
+  playwrightWaitMs: number;
+  playwrightTimeoutMs: number;
+  proxyUrls: string[];
+  userAgent: string;
+  captchaSolverKey: string;
+  captchaSolverProvider: '2captcha' | 'none';
+  maxFetchAttempts: number;
+}
 
 export interface NetworkPaymentConfig {
   network: NetworkId;
   asset: string;
   label: string;
+  payTo: string;
 }
 
 export interface AppConfig {
@@ -25,6 +36,7 @@ export interface AppConfig {
   host: string;
   publicUrl: string;
   walletAddress: string;
+  solanaWalletAddress: string;
   priceUsdc: number;
   /** Primary network (first in `networks`) for backwards-compatible fields. */
   network: NetworkId;
@@ -47,6 +59,8 @@ export interface AppConfig {
   playwrightMinText: number;
   playwrightWaitMs: number;
   playwrightTimeoutMs: number;
+  mpp: MppConfig;
+  stealth: StealthConfig;
 }
 
 function envInt(name: string, fallback: number): number {
@@ -74,7 +88,12 @@ function resolveFacilitatorUrl(networks: NetworkId[]): string {
   if (process.env.FACILITATOR_URL) return process.env.FACILITATOR_URL;
 
   const hasCdpMainnet = networks.some(
-    (n) => n === 'eip155:8453' || n === 'eip155:137' || n === 'eip155:42161' || n === 'eip155:480'
+    (n) =>
+      n === 'eip155:8453' ||
+      n === 'eip155:137' ||
+      n === 'eip155:42161' ||
+      n === 'eip155:480' ||
+      n === 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp'
   );
   const hasCdpKeys = Boolean(process.env.CDP_API_KEY_ID && process.env.CDP_API_KEY_SECRET);
 
@@ -105,18 +124,31 @@ function envRenderEngine(): 'auto' | 'jsdom' | 'playwright' {
   return 'auto';
 }
 
+function parseProxyList(raw: string | undefined): string[] {
+  if (!raw?.trim()) return [];
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 const networks = filterNetworksForFacilitator(resolveNetworks());
+const evmWallet = process.env.WALLET_ADDRESS || '';
+const solanaWallet = solanaWalletFromEnv();
 const networkPayments: NetworkPaymentConfig[] = networks.map((network) => ({
   network,
   asset: usdcForNetwork(network),
-  label: networkLabel(network)
+  label: networkLabel(network),
+  payTo: payToForNetwork(network, evmWallet, solanaWallet)
 }));
+const publicUrl = resolvePublicUrl();
 
 export const config: AppConfig = {
   port: parseInt(process.env.PORT || '4022', 10),
   host: process.env.HOST || '0.0.0.0',
-  publicUrl: resolvePublicUrl(),
-  walletAddress: process.env.WALLET_ADDRESS || '',
+  publicUrl,
+  walletAddress: evmWallet,
+  solanaWalletAddress: solanaWallet,
   priceUsdc: envFloat('PRICE_USDC', 0.002),
   network: networks[0],
   networks,
@@ -135,9 +167,24 @@ export const config: AppConfig = {
   renderEngine: envRenderEngine(),
   playwrightMinText: envInt('PLAYWRIGHT_MIN_TEXT', 200),
   playwrightWaitMs: envInt('PLAYWRIGHT_WAIT_MS', 2500),
-  playwrightTimeoutMs: envInt('PLAYWRIGHT_TIMEOUT_MS', 30_000)
+  playwrightTimeoutMs: envInt('PLAYWRIGHT_TIMEOUT_MS', 30_000),
+  mpp: buildMppConfig(publicUrl),
+  stealth: {
+    priceUsdc: envFloat('STEALTH_PRICE_USDC', 0.05),
+    maxConcurrentParses: envInt('STEALTH_MAX_CONCURRENT', 5),
+    playwrightWaitMs: envInt('STEALTH_PLAYWRIGHT_WAIT_MS', 5000),
+    playwrightTimeoutMs: envInt('STEALTH_PLAYWRIGHT_TIMEOUT_MS', 60_000),
+    proxyUrls: parseProxyList(process.env.STEALTH_PROXY_URLS || process.env.STEALTH_PROXY_URL),
+    userAgent:
+      process.env.STEALTH_USER_AGENT?.trim() ||
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    captchaSolverKey: process.env.CAPTCHA_SOLVER_KEY?.trim() || process.env.TWO_CAPTCHA_KEY?.trim() || '',
+    captchaSolverProvider: process.env.CAPTCHA_SOLVER_KEY || process.env.TWO_CAPTCHA_KEY ? '2captcha' : 'none',
+    maxFetchAttempts: envInt('STEALTH_MAX_ATTEMPTS', 2)
+  }
 };
 
+/** @deprecated use priceLabel from tools.ts */
 export function priceLabel(): string {
   return `$${config.priceUsdc.toFixed(6).replace(/0+$/, '').replace(/\.$/, '.0')}`;
 }

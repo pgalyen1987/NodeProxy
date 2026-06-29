@@ -1,14 +1,14 @@
 {
   "$schema": "https://modelcontextprotocol.io/schemas/registry/v1/server.schema.json",
   "name": "nodeproxy",
-  "description": "x402-gated web surface parser. Strips JS-heavy pages into LLM-optimized Markdown. Autonomous agents discover via MCP registries and Bazaar.",
-  "version": "1.0.0",
-  "homepage": "https://github.com/modelcontextprotocol/registry",
+  "description": "x402-gated MCP server. Parses JS-heavy pages into LLM-optimized Markdown. Standard and stealth anti-bot tiers. Agents discover via MCP registries and x402 Bazaar.",
+  "version": "1.1.0",
+  "homepage": "https://github.com/pgalyen1987/NodeProxy",
   "license": "MIT",
-  "keywords": ["mcp", "x402", "web-scraping", "markdown", "llm", "agents", "base", "usdc"],
+  "keywords": ["mcp", "x402", "mpp", "web-scraping", "markdown", "llm", "agents", "base", "usdc", "stealth"],
   "transport": {
     "type": "streamable-http",
-    "url": "https://YOUR_DEPLOY_URL/mcp"
+    "url": "https://nodeproxy-production.up.railway.app/mcp"
   },
   "tools": [
     {
@@ -21,18 +21,47 @@
         },
         "required": ["url"]
       }
+    },
+    {
+      "name": "stealth_markdown_parser",
+      "description": "Anti-bot stealth fetch: residential proxy rotation, hardened Playwright, optional CAPTCHA solving. Returns fully rendered Markdown from Cloudflare/Akamai-protected pages.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "Protected website URL to scrape" }
+        },
+        "required": ["url"]
+      }
     }
   ],
   "metadata": {
     "x402": {
+      "version": 2,
       "network": "eip155:8453",
+      "networks": ["eip155:8453", "eip155:137", "eip155:42161", "eip155:1"],
       "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
-      "priceUsdc": 0.002,
+      "payTo": "0x8E57BFDE053dBb6862991759c19affC5F383d5D0",
+      "pricing": {
+        "surface_markdown_parser": { "priceUsdc": 0.002, "endpoint": "/mcp/execute" },
+        "stealth_markdown_parser": { "priceUsdc": 0.05, "endpoint": "/stealth-scrape" }
+      },
       "facilitator": "https://x402.org/facilitator",
+      "bazaar": true,
       "discovery": {
-        "toolsManifest": "https://YOUR_DEPLOY_URL/mcp/tools",
-        "wellKnown": "https://YOUR_DEPLOY_URL/.well-known/mcp.json"
+        "toolsManifest": "https://nodeproxy-production.up.railway.app/mcp/tools",
+        "wellKnownMcp": "https://nodeproxy-production.up.railway.app/.well-known/mcp.json",
+        "wellKnownX402": "https://nodeproxy-production.up.railway.app/.well-known/x402.json",
+        "agentCard": "https://nodeproxy-production.up.railway.app/discovery/agent.json"
       }
+    },
+    "mpp": {
+      "enabled": true,
+      "method": "stripe/charge",
+      "amountUsd": 0.5,
+      "currency": "usd",
+      "scope": "POST /mcp/execute",
+      "wellKnown": "https://nodeproxy-production.up.railway.app/.well-known/mpp.json",
+      "createTokenUrl": "https://nodeproxy-production.up.railway.app/mpp/stripe/create-token"
     }
   }
 }

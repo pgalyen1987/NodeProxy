@@ -7,8 +7,10 @@ import {
 } from '@x402/core/http';
 import type { PaymentPayload, PaymentRequirements } from '@x402/core/types';
 import { ExactEvmScheme } from '@x402/evm/exact/server';
+import { ExactSvmScheme } from '@x402/svm/exact/server';
 import { bazaarResourceServerExtension } from '@x402/extensions/bazaar';
-import { config, TOOL_DESCRIPTION } from '../config.js';
+import { config } from '../config.js';
+import { descriptionForTool, type ToolName } from '../tools.js';
 import { buildFacilitatorClients } from './facilitators.js';
 import { networkPaymentOptions } from './networks.js';
 import { parsePaymentHints, resolvePayment, type PaymentHints, toPaymentSummary } from './negotiate.js';
@@ -20,11 +22,12 @@ function buildFacilitatorClient() {
   return buildFacilitatorClients(config.facilitatorUrl);
 }
 
-function buildAcceptsConfig() {
+function buildAcceptsConfig(priceUsdc: number) {
   return networkPaymentOptions(
     config.networks,
     config.walletAddress || '0x0000000000000000000000000000000000000000',
-    config.priceUsdc
+    config.solanaWalletAddress,
+    priceUsdc
   );
 }
 
@@ -32,10 +35,11 @@ const facilitator = buildFacilitatorClient();
 
 export const resourceServer = new x402ResourceServer(facilitator)
   .register('eip155:*', new ExactEvmScheme())
+  .register('solana:*', new ExactSvmScheme())
   .registerExtension(bazaarResourceServerExtension);
 
 export const httpResourceServer = new x402HTTPResourceServer(resourceServer, {
-  accepts: buildAcceptsConfig()
+  accepts: buildAcceptsConfig(config.priceUsdc)
 });
 
 let ready = false;
@@ -55,26 +59,30 @@ export function decodePaymentHeader(header?: string | null): PaymentPayload | nu
   }
 }
 
-export async function buildAllToolRequirements(context: HTTPRequestContext): Promise<PaymentRequirements[]> {
+export async function buildAllToolRequirements(
+  context: HTTPRequestContext,
+  priceUsdc = config.priceUsdc
+): Promise<PaymentRequirements[]> {
   return resourceServer.buildPaymentRequirementsFromOptions(
-    networkPaymentOptions(config.networks, config.walletAddress, config.priceUsdc),
+    networkPaymentOptions(config.networks, config.walletAddress, config.solanaWalletAddress, priceUsdc),
     context
   );
 }
 
 export async function buildToolRequirements(
   context: HTTPRequestContext,
-  hints?: PaymentHints
+  hints?: PaymentHints,
+  priceUsdc = config.priceUsdc
 ): Promise<PaymentRequirements[]> {
   const resolvedHints = hints ?? { mode: 'auto' as const };
 
   if (resolvedHints.mode === 'all') {
-    return buildAllToolRequirements(context);
+    return buildAllToolRequirements(context, priceUsdc);
   }
 
   const resolved = await resolvePayment(resolvedHints);
   return resourceServer.buildPaymentRequirementsFromOptions(
-    networkPaymentOptions([resolved.network], config.walletAddress, config.priceUsdc),
+    networkPaymentOptions([resolved.network], config.walletAddress, config.solanaWalletAddress, priceUsdc),
     context
   );
 }
@@ -82,16 +90,19 @@ export async function buildToolRequirements(
 export async function createToolPaymentChallenge(
   context: HTTPRequestContext,
   resourceUrl: string,
+  tool: ToolName,
   extensions?: Record<string, unknown>,
-  hints?: PaymentHints
+  hints?: PaymentHints,
+  priceUsdc?: number
 ) {
+  const amount = priceUsdc ?? (tool === 'stealth_markdown_parser' ? config.stealth.priceUsdc : config.priceUsdc);
   const resolvedHints = hints ?? parsePaymentHints(context);
-  const requirements = await buildToolRequirements(context, resolvedHints);
+  const requirements = await buildToolRequirements(context, resolvedHints, amount);
   const paymentRequired = await resourceServer.createPaymentRequiredResponse(
     requirements,
     {
       url: resourceUrl,
-      description: TOOL_DESCRIPTION,
+      description: descriptionForTool(tool),
       mimeType: 'application/json',
       serviceName: config.serviceName,
       tags: config.serviceTags
@@ -101,7 +112,7 @@ export async function createToolPaymentChallenge(
     context
   );
 
-  const resolved = await resolvePayment(resolvedHints);
+  const resolved = await resolvePayment(resolvedHints, amount);
   return {
     paymentRequired,
     requirements,
