@@ -16,30 +16,32 @@ interface SecretArgs {
 
 /** Paid: one-time secret relay (store | redeem-and-burn). */
 export async function handleSecret(c: Context, bazaar: Record<string, unknown>): Promise<Response> {
-  let body: { arguments?: SecretArgs };
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: 'Invalid JSON body' }, 400);
-  }
-  const args = body.arguments ?? {};
-  const op = args.op ?? 'store';
-  if (op !== 'store' && op !== 'redeem') {
-    return c.json({ error: 'op must be store or redeem.' }, 400);
-  }
-  if (op === 'store') {
-    if (typeof args.secret !== 'string' || args.secret.length === 0) {
-      return c.json({ error: 'store requires a non-empty secret string.' }, 400);
-    }
-    if (Buffer.byteLength(args.secret, 'utf8') > config.secret.maxSecretBytes) {
-      return c.json({ error: `secret exceeds ${config.secret.maxSecretBytes} bytes.` }, 400);
-    }
-  }
-  if (op === 'redeem' && !args.token) {
-    return c.json({ error: 'redeem requires a token.' }, 400);
-  }
-
+  // Unpaid requests get a 402 first (Bazaar probe requirement); body is validated
+  // post-payment inside the gate.
   return gateX402(c, { tool: SECRET_TOOL_NAME, resourcePath: '/agent-secret', bazaar }, async (settled) => {
+    let body: { arguments?: SecretArgs };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'Invalid JSON body' }, 400);
+    }
+    const args = body.arguments ?? {};
+    const op = args.op ?? 'store';
+    if (op !== 'store' && op !== 'redeem') {
+      return c.json({ error: 'op must be store or redeem.' }, 400);
+    }
+    if (op === 'store') {
+      if (typeof args.secret !== 'string' || args.secret.length === 0) {
+        return c.json({ error: 'store requires a non-empty secret string.' }, 400);
+      }
+      if (Buffer.byteLength(args.secret, 'utf8') > config.secret.maxSecretBytes) {
+        return c.json({ error: `secret exceeds ${config.secret.maxSecretBytes} bytes.` }, 400);
+      }
+    }
+    if (op === 'redeem' && !args.token) {
+      return c.json({ error: 'redeem requires a token.' }, 400);
+    }
+
     let result: Record<string, unknown>;
     if (op === 'store') {
       const ttl = Math.min(Math.max(args.ttl_seconds ?? 3600, 1), config.secret.maxTtlSeconds);

@@ -113,11 +113,8 @@ export async function handleTimerCreate(c: Context, bazaarExtensions: Record<str
   try {
     body = await c.req.json();
   } catch {
-    return c.json({ error: 'Invalid JSON body' }, 400);
+    body = {};
   }
-
-  const plan = planTimer(body.arguments ?? {});
-  if ('error' in plan) return c.json({ error: plan.error }, 400);
 
   await ensureX402Ready();
 
@@ -127,6 +124,7 @@ export async function handleTimerCreate(c: Context, bazaarExtensions: Record<str
   const signature = c.req.header('payment-signature') || c.req.header('PAYMENT-SIGNATURE');
   const paymentHints = parsePaymentHints(context, body as Record<string, unknown>);
 
+  // Unpaid requests MUST get a 402 before body validation (Bazaar probe requirement).
   if (!signature) {
     const challenge = await createToolPaymentChallenge(
       context,
@@ -152,6 +150,14 @@ export async function handleTimerCreate(c: Context, bazaarExtensions: Record<str
 
   if (!consumeProof(signature)) {
     return c.json({ error: 'Payment proof already consumed' }, 409);
+  }
+
+  // Validate after confirming payment intent but before settling, so an invalid
+  // request isn't charged.
+  const plan = planTimer(body.arguments ?? {});
+  if ('error' in plan) {
+    releaseProof(signature);
+    return c.json({ error: plan.error }, 400);
   }
 
   const requirements = await buildAllToolRequirements(context, priceUsdc);

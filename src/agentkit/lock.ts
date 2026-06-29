@@ -16,26 +16,28 @@ interface LockArgs {
 
 /** Paid: distributed lock / idempotency op (claim | release | check). */
 export async function handleLock(c: Context, bazaar: Record<string, unknown>): Promise<Response> {
-  let body: { arguments?: LockArgs };
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: 'Invalid JSON body' }, 400);
-  }
-  const args = body.arguments ?? {};
-  const op = args.op ?? 'claim';
-  const key = args.key;
-  if (!key || typeof key !== 'string' || key.length > 256) {
-    return c.json({ error: 'key is required (string, <=256 chars).' }, 400);
-  }
-  if (op !== 'claim' && op !== 'release' && op !== 'check') {
-    return c.json({ error: 'op must be claim, release, or check.' }, 400);
-  }
-  if (op === 'release' && !args.token) {
-    return c.json({ error: 'release requires the token from claim.' }, 400);
-  }
-
+  // Unpaid requests get a 402 first (Bazaar probe requirement); body is validated
+  // post-payment inside the gate.
   return gateX402(c, { tool: LOCK_TOOL_NAME, resourcePath: '/agent-lock', bazaar }, async (settled) => {
+    let body: { arguments?: LockArgs };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'Invalid JSON body' }, 400);
+    }
+    const args = body.arguments ?? {};
+    const op = args.op ?? 'claim';
+    const key = args.key;
+    if (!key || typeof key !== 'string' || key.length > 256) {
+      return c.json({ error: 'key is required (string, <=256 chars).' }, 400);
+    }
+    if (op !== 'claim' && op !== 'release' && op !== 'check') {
+      return c.json({ error: 'op must be claim, release, or check.' }, 400);
+    }
+    if (op === 'release' && !args.token) {
+      return c.json({ error: 'release requires the token from claim.' }, 400);
+    }
+
     let result: Record<string, unknown>;
     if (op === 'claim') {
       const ttl = Math.min(Math.max(args.ttl_seconds ?? 300, 1), config.lock.maxTtlSeconds);

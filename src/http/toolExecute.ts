@@ -34,10 +34,6 @@ export async function handleToolExecute(c: Context, body: { arguments?: { url?: 
     return c.json({ error: 'Rate limit exceeded' }, 429);
   }
 
-  if (!body.arguments?.url) {
-    return c.json({ error: 'Invalid tool routing parameters.' }, 400);
-  }
-
   await ensureX402Ready();
 
   const priceUsdc = priceForTool(options.tool);
@@ -50,14 +46,19 @@ export async function handleToolExecute(c: Context, body: { arguments?: { url?: 
 
   // Non-crypto fast path: a valid X-API-Key bills the account and bypasses x402.
   // Checked before MPP/x402 so an API-key caller never sees a 402 challenge.
-  const url = body.arguments.url;
-  const apiKeyResponse = await tryApiKeyPayment(
-    c,
-    { service: 'nodeproxy', tool: options.tool, priceUsdc },
-    async () => await runParse(url, options.tool)
-  );
-  if (apiKeyResponse) return apiKeyResponse;
+  // Skipped when no url is supplied so an unauthenticated probe still reaches the 402.
+  const url = body.arguments?.url;
+  if (url) {
+    const apiKeyResponse = await tryApiKeyPayment(
+      c,
+      { service: 'nodeproxy', tool: options.tool, priceUsdc },
+      async () => await runParse(url, options.tool)
+    );
+    if (apiKeyResponse) return apiKeyResponse;
+  }
 
+  // Unpaid requests MUST get a 402 before any body validation — the Bazaar crawler
+  // probes the resource URL and only indexes endpoints that answer 402 (not 400).
   if (!signature && !useMpp) {
     const challenge = await createToolPaymentChallenge(
       context,
@@ -98,6 +99,11 @@ export async function handleToolExecute(c: Context, body: { arguments?: { url?: 
     return c.json(payload, 402, headers);
   }
 
+  // Past this point the caller is paying (x402 or MPP) — now the url is required.
+  if (!url) {
+    return c.json({ error: 'Invalid tool routing parameters.' }, 400);
+  }
+
   if (useMpp) {
     const proofKey = mppAuth || '';
     if (proofKey && !consumeProof(proofKey)) {
@@ -111,7 +117,7 @@ export async function handleToolExecute(c: Context, body: { arguments?: { url?: 
     }
 
     const parseResponse = await buildParseWebResponse(
-      body.arguments.url,
+      url,
       TOOL_NAME,
       { protocol: 'mpp', method: 'stripe/charge', tool: TOOL_NAME },
       proofKey || undefined
@@ -148,7 +154,7 @@ export async function handleToolExecute(c: Context, body: { arguments?: { url?: 
   try {
     return respondWithParseResult(
       c,
-      body.arguments.url,
+      url,
       options.tool,
       {
         protocol: 'x402',
