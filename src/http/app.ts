@@ -18,11 +18,15 @@ import { isMppEnabled, createStripeSpt } from '../mpp/server.js';
 import { mppSnapshot } from '../mpp/config.js';
 import { handleToolExecute } from './toolExecute.js';
 import { createOpsRoutes } from '../billing/index.js';
+import { handleTimerCreate, handleTimerPoll } from '../timer/handler.js';
+import { startTimerScheduler } from '../timer/scheduler.js';
 import {
   TOOL_NAME,
   STEALTH_TOOL_NAME,
+  TIMER_TOOL_NAME,
   TOOL_DESCRIPTION,
-  STEALTH_TOOL_DESCRIPTION,
+  TIMER_TOOL_DESCRIPTION,
+  stealthToolDescription,
   priceLabel,
   stealthPriceLabel
 } from '../tools.js';
@@ -45,17 +49,38 @@ const standardBazaar = declareDiscoveryExtension({
 
 const stealthBazaar = declareDiscoveryExtension({
   toolName: STEALTH_TOOL_NAME,
-  description:
-    'Stealth anti-bot fetch with proxy rotation and CAPTCHA solving. Returns Markdown from Cloudflare/Akamai-protected pages.',
+  description: stealthToolDescription(),
   transport: 'streamable-http',
   inputSchema: {
     type: 'object',
-    properties: { url: { type: 'string', description: 'Protected website URL to scrape' } },
+    properties: { url: { type: 'string', description: 'Website URL to fetch via the hardened headless browser' } },
     required: ['url']
   },
   output: {
     example: {
       content: [{ type: 'text', text: '### SOURCE: https://protected.example\n### RENDER: stealth\n\n# Title\n\nContent...' }]
+    }
+  }
+});
+
+const timerBazaar = declareDiscoveryExtension({
+  toolName: TIMER_TOOL_NAME,
+  description: TIMER_TOOL_DESCRIPTION,
+  transport: 'streamable-http',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      delay_seconds: { type: 'number', description: 'Seconds from now to fire (preferred).' },
+      fire_at: { type: 'number', description: 'Absolute fire time as epoch seconds (alternative to delay_seconds).' },
+      callback_url: { type: 'string', description: 'HTTPS URL to POST the payload to at fire time (push mode). Omit for poll mode.' },
+      payload: { description: 'Arbitrary JSON delivered/held verbatim at fire time.' },
+      mode: { type: 'string', enum: ['push', 'poll'], description: 'push = POST to callback_url; poll = retrieve via GET /agent-timer/{id}.' }
+    },
+    required: []
+  },
+  output: {
+    example: {
+      timer: { id: 'b1f2…', mode: 'push', fire_at: 1751240000, status: 'pending', poll_url: 'https://…/agent-timer/b1f2…' }
     }
   }
 });
@@ -225,9 +250,28 @@ export function createHttpApp() {
     }
   });
 
+  app.post('/agent-timer', async (c) => {
+    try {
+      return await handleTimerCreate(c, timerBazaar);
+    } catch (err) {
+      console.error('[agent-timer]', err);
+      return c.json({ error: err instanceof Error ? err.message : 'Internal Server Error' }, 500);
+    }
+  });
+
+  app.get('/agent-timer/:id', async (c) => {
+    try {
+      return await handleTimerPoll(c);
+    } catch (err) {
+      console.error('[agent-timer/:id]', err);
+      return c.json({ error: err instanceof Error ? err.message : 'Internal Server Error' }, 500);
+    }
+  });
+
   void ensureX402Ready();
+  startTimerScheduler();
 
   return app;
 }
 
-export { TOOL_NAME, STEALTH_TOOL_NAME, TOOL_DESCRIPTION, STEALTH_TOOL_DESCRIPTION, priceLabel, stealthPriceLabel };
+export { TOOL_NAME, STEALTH_TOOL_NAME, TOOL_DESCRIPTION, priceLabel, stealthPriceLabel };

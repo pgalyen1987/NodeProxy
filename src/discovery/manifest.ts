@@ -3,10 +3,14 @@ import { mppSnapshot } from '../mpp/config.js';
 import {
   TOOL_NAME,
   STEALTH_TOOL_NAME,
+  TIMER_TOOL_NAME,
   TOOL_DESCRIPTION,
-  STEALTH_TOOL_DESCRIPTION,
+  TIMER_TOOL_DESCRIPTION,
+  stealthToolDescription,
+  stealthFeatures,
   priceLabel,
-  stealthPriceLabel
+  stealthPriceLabel,
+  timerPriceLabel
 } from '../tools.js';
 
 export const toolInputSchema = {
@@ -46,6 +50,30 @@ function buildStealthPricing() {
     x402: {
       amount: stealthPriceLabel(),
       priceUsdc: config.stealth.priceUsdc,
+      network: config.network,
+      networks: config.networks,
+      assets: config.networkPayments.map((n) => ({ network: n.network, asset: n.asset }))
+    }
+  };
+}
+
+export const timerInputSchema = {
+  type: 'object',
+  properties: {
+    delay_seconds: { type: 'number', description: 'Seconds from now to fire (preferred).' },
+    fire_at: { type: 'number', description: 'Absolute fire time as epoch seconds (alternative to delay_seconds).' },
+    callback_url: { type: 'string', description: 'HTTPS URL to POST the payload to at fire time (push mode). Omit for poll mode.' },
+    payload: { description: 'Arbitrary JSON delivered/held verbatim at fire time.' },
+    mode: { type: 'string', enum: ['push', 'poll'], description: 'push = POST to callback_url; poll = retrieve via GET /agent-timer/{id}.' }
+  },
+  required: []
+} as const;
+
+function buildTimerPricing() {
+  return {
+    x402: {
+      amount: timerPriceLabel(),
+      priceUsdc: config.timer.priceUsdc,
       network: config.network,
       networks: config.networks,
       assets: config.networkPayments.map((n) => ({ network: n.network, asset: n.asset }))
@@ -113,11 +141,18 @@ export function buildToolsManifest() {
       },
       {
         name: STEALTH_TOOL_NAME,
-        description: STEALTH_TOOL_DESCRIPTION,
+        description: stealthToolDescription(),
         inputSchema: toolInputSchema,
         endpoint: `${config.publicUrl}/stealth-scrape`,
         pricing: buildStealthPricing(),
-        features: ['proxy-rotation', 'stealth-playwright', 'captcha-solving']
+        features: stealthFeatures()
+      },
+      {
+        name: TIMER_TOOL_NAME,
+        description: TIMER_TOOL_DESCRIPTION,
+        inputSchema: timerInputSchema,
+        endpoint: `${config.publicUrl}/agent-timer`,
+        pricing: buildTimerPricing()
       }
     ],
     discovery: {
@@ -171,7 +206,7 @@ export function buildX402WellKnownManifest() {
         url: `${config.publicUrl}/stealth-scrape`,
         transport: `${config.publicUrl}/mcp`,
         toolName: STEALTH_TOOL_NAME,
-        description: STEALTH_TOOL_DESCRIPTION,
+        description: stealthToolDescription(),
         inputSchema: toolInputSchema,
         pricing: {
           amountUsdc: config.stealth.priceUsdc,
@@ -222,7 +257,8 @@ export function buildAgentDiscoveryCard() {
       'web-fetch',
       'markdown-extraction',
       'x402-micropayment',
-      'stealth-anti-bot',
+      'headless-browser-render',
+      'scheduled-callback',
       ...(config.mpp.enabled ? ['mpp-stripe'] : [])
     ],
     tools: [
@@ -255,7 +291,7 @@ export function buildAgentDiscoveryCard() {
       },
       {
         name: STEALTH_TOOL_NAME,
-        description: STEALTH_TOOL_DESCRIPTION,
+        description: stealthToolDescription(),
         endpoint: `${config.publicUrl}/stealth-scrape`,
         mcpTransport: `${config.publicUrl}/mcp`,
         inputSchema: toolInputSchema,

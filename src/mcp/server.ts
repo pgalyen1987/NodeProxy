@@ -14,7 +14,7 @@ import {
   TOOL_NAME,
   STEALTH_TOOL_NAME,
   TOOL_DESCRIPTION,
-  STEALTH_TOOL_DESCRIPTION,
+  stealthToolDescription,
   priceLabel,
   stealthPriceLabel
 } from '../tools.js';
@@ -51,7 +51,7 @@ const standardBazaar = declareDiscoveryExtension({
 
 const stealthBazaar = declareDiscoveryExtension({
   toolName: STEALTH_TOOL_NAME,
-  description: STEALTH_TOOL_DESCRIPTION,
+  description: stealthToolDescription(),
   transport: 'streamable-http',
   inputSchema: {
     type: 'object',
@@ -87,7 +87,7 @@ export async function createMcpServer(): Promise<McpServer> {
     accepts: stealthAccepts,
     resource: {
       url: `mcp://tool/${STEALTH_TOOL_NAME}`,
-      description: STEALTH_TOOL_DESCRIPTION,
+      description: stealthToolDescription(),
       mimeType: 'application/json',
       serviceName: config.serviceName,
       tags: [...config.serviceTags, 'stealth', 'anti-bot']
@@ -105,7 +105,7 @@ export async function createMcpServer(): Promise<McpServer> {
       instructions:
         `Paid x402 web surface parser. Tools:\n` +
         `- ${TOOL_NAME}: ${priceLabel()} USDC — fast public page Markdown\n` +
-        `- ${STEALTH_TOOL_NAME}: ${stealthPriceLabel()} USDC — anti-bot stealth fetch with proxies/CAPTCHA\n` +
+        `- ${STEALTH_TOOL_NAME}: ${stealthPriceLabel()} USDC — hardened headless-browser fetch (full JS/SPA rendering)\n` +
         `Networks: ${config.networks.join(', ')}`
     }
   );
@@ -135,7 +135,7 @@ export async function createMcpServer(): Promise<McpServer> {
     STEALTH_TOOL_NAME,
     {
       title: 'Stealth Anti-Bot Markdown Parser',
-      description: `${STEALTH_TOOL_DESCRIPTION} Price: ${stealthPriceLabel()} USDC per call.`,
+      description: `${stealthToolDescription()} Price: ${stealthPriceLabel()} USDC per call.`,
       inputSchema: { url: z.string().url().describe('Protected http(s) URL to fetch via stealth pipeline') }
     },
     stealthPaid(async ({ url }) => {

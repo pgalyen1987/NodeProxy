@@ -24,6 +24,15 @@ export interface StealthConfig {
   maxFetchAttempts: number;
 }
 
+export interface TimerConfig {
+  priceUsdc: number;
+  minDelaySeconds: number;
+  maxDelaySeconds: number;
+  maxPayloadBytes: number;
+  pollRetentionSeconds: number;
+  maxDeliveryAttempts: number;
+}
+
 export interface NetworkPaymentConfig {
   network: NetworkId;
   asset: string;
@@ -61,6 +70,7 @@ export interface AppConfig {
   playwrightTimeoutMs: number;
   mpp: MppConfig;
   stealth: StealthConfig;
+  timer: TimerConfig;
 }
 
 function envInt(name: string, fallback: number): number {
@@ -181,6 +191,14 @@ export const config: AppConfig = {
     captchaSolverKey: process.env.CAPTCHA_SOLVER_KEY?.trim() || process.env.TWO_CAPTCHA_KEY?.trim() || '',
     captchaSolverProvider: process.env.CAPTCHA_SOLVER_KEY || process.env.TWO_CAPTCHA_KEY ? '2captcha' : 'none',
     maxFetchAttempts: envInt('STEALTH_MAX_ATTEMPTS', 2)
+  },
+  timer: {
+    priceUsdc: envFloat('TIMER_PRICE_USDC', 0.001),
+    minDelaySeconds: envInt('TIMER_MIN_DELAY_SECONDS', 5),
+    maxDelaySeconds: envInt('TIMER_MAX_DELAY_SECONDS', 7 * 24 * 3600),
+    maxPayloadBytes: envInt('TIMER_MAX_PAYLOAD_BYTES', 16_384),
+    pollRetentionSeconds: envInt('TIMER_POLL_RETENTION_SECONDS', 3600),
+    maxDeliveryAttempts: envInt('TIMER_MAX_DELIVERY_ATTEMPTS', 3)
   }
 };
 
