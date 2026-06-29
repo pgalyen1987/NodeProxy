@@ -4,11 +4,29 @@ import { config } from '../config.js';
 export type TimerMode = 'push' | 'poll';
 export type TimerStatus = 'pending' | 'delivered' | 'failed' | 'fired';
 
+export interface TimerAction {
+  url: string;
+  method: string; // GET | POST | PUT | PATCH | DELETE
+  headers?: Record<string, string>;
+  body?: unknown;
+}
+
+export interface TimerActionResult {
+  status: number;
+  ok: boolean;
+  body: string;
+  truncated: boolean;
+  error?: string;
+}
+
 export interface TimerRecord {
   id: string;
   mode: TimerMode;
   callbackUrl?: string;
   payload: unknown;
+  /** If set, the scheduler executes this HTTP request at fireAt instead of delivering payload. */
+  action?: TimerAction;
+  actionResult?: TimerActionResult;
   fireAt: number; // epoch ms
   createdAt: number;
   status: TimerStatus;

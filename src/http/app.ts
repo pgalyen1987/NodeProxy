@@ -72,15 +72,26 @@ const timerBazaar = declareDiscoveryExtension({
     properties: {
       delay_seconds: { type: 'number', description: 'Seconds from now to fire (preferred).' },
       fire_at: { type: 'number', description: 'Absolute fire time as epoch seconds (alternative to delay_seconds).' },
-      callback_url: { type: 'string', description: 'HTTPS URL to POST the payload to at fire time (push mode). Omit for poll mode.' },
-      payload: { description: 'Arbitrary JSON delivered/held verbatim at fire time.' },
-      mode: { type: 'string', enum: ['push', 'poll'], description: 'push = POST to callback_url; poll = retrieve via GET /agent-timer/{id}.' }
+      action: {
+        type: 'object',
+        description: 'Execute this HTTP request at fire time and capture the response for polling.',
+        properties: {
+          url: { type: 'string', description: 'Public HTTPS URL to call.' },
+          method: { type: 'string', enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'], description: 'HTTP method (default POST).' },
+          headers: { type: 'object', description: 'Optional request headers.' },
+          body: { description: 'Optional JSON request body.' }
+        },
+        required: ['url']
+      },
+      callback_url: { type: 'string', description: 'HTTPS URL to POST the payload (or action result) to at fire time (push). Omit for poll.' },
+      payload: { description: 'Arbitrary JSON delivered/held verbatim at fire time (when no action is given).' },
+      mode: { type: 'string', enum: ['push', 'poll'], description: 'For payload timers: push = POST to callback_url; poll = retrieve via GET /agent-timer/{id}.' }
     },
     required: []
   },
   output: {
     example: {
-      timer: { id: 'b1f2…', mode: 'push', fire_at: 1751240000, status: 'pending', poll_url: 'https://…/agent-timer/b1f2…' }
+      timer: { id: 'b1f2…', kind: 'action', fire_at: 1751240000, status: 'pending', poll_url: 'https://…/agent-timer/b1f2…' }
     }
   }
 });

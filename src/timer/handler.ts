@@ -16,7 +16,16 @@ import { isRateLimited, rateLimitKey } from '../lib/guards.js';
 import { recordSettledUsage, hashedIp } from '../billing/index.js';
 import { TIMER_TOOL_NAME, priceForTool } from '../tools.js';
 import { isSafeCallbackUrl } from './scheduler.js';
-import { putTimer, getTimer, type TimerMode, type TimerRecord } from './store.js';
+import { putTimer, getTimer, type TimerMode, type TimerRecord, type TimerAction } from './store.js';
+
+const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']);
+
+interface TimerActionArg {
+  url?: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: unknown;
+}
 
 interface TimerArgs {
   callback_url?: string;
@@ -24,6 +33,7 @@ interface TimerArgs {
   fire_at?: number; // epoch seconds
   payload?: unknown;
   mode?: TimerMode;
+  action?: TimerActionArg;
 }
 
 interface TimerCreateBody {
@@ -31,8 +41,16 @@ interface TimerCreateBody {
   [k: string]: unknown;
 }
 
+interface TimerPlan {
+  mode: TimerMode;
+  callbackUrl?: string;
+  fireAt: number;
+  payload: unknown;
+  action?: TimerAction;
+}
+
 /** Validate args and resolve the absolute fire time (epoch ms). Returns an error string or the plan. */
-function planTimer(args: TimerArgs): { error: string } | { mode: TimerMode; callbackUrl?: string; fireAt: number; payload: unknown } {
+function planTimer(args: TimerArgs): { error: string } | TimerPlan {
   const { minDelaySeconds, maxDelaySeconds, maxPayloadBytes } = config.timer;
   const now = Date.now();
 
@@ -49,12 +67,32 @@ function planTimer(args: TimerArgs): { error: string } | { mode: TimerMode; call
   if (delta < minDelaySeconds) return { error: `Fire time too soon; minimum ${minDelaySeconds}s out.` };
   if (delta > maxDelaySeconds) return { error: `Fire time too far; maximum ${maxDelaySeconds}s out.` };
 
-  const mode: TimerMode = args.mode ?? (args.callback_url ? 'push' : 'poll');
-  if (mode === 'push') {
-    if (!args.callback_url) return { error: 'push mode requires callback_url.' };
-    if (!isSafeCallbackUrl(args.callback_url)) {
-      return { error: 'callback_url must be a public HTTPS URL (no localhost/private/metadata hosts).' };
+  if (args.callback_url && !isSafeCallbackUrl(args.callback_url)) {
+    return { error: 'callback_url must be a public HTTPS URL (no localhost/private/metadata hosts).' };
+  }
+
+  // Action timer: execute an HTTP request at fire time, capture the response for polling.
+  if (args.action) {
+    const a = args.action;
+    if (!a.url) return { error: 'action.url is required.' };
+    if (!isSafeCallbackUrl(a.url)) {
+      return { error: 'action.url must be a public HTTPS URL (no localhost/private/metadata hosts).' };
     }
+    const method = (a.method ?? 'POST').toUpperCase();
+    if (!ALLOWED_METHODS.has(method)) {
+      return { error: `action.method must be one of ${[...ALLOWED_METHODS].join(', ')}.` };
+    }
+    if (a.body !== undefined && Buffer.byteLength(JSON.stringify(a.body), 'utf8') > maxPayloadBytes) {
+      return { error: `action.body exceeds ${maxPayloadBytes} bytes.` };
+    }
+    const action: TimerAction = { url: a.url, method, headers: a.headers, body: a.body };
+    // Action results are always pollable; callback_url (if any) also receives the result.
+    return { mode: 'poll', callbackUrl: args.callback_url, fireAt, payload: null, action };
+  }
+
+  const mode: TimerMode = args.mode ?? (args.callback_url ? 'push' : 'poll');
+  if (mode === 'push' && !args.callback_url) {
+    return { error: 'push mode requires callback_url (or supply an action).' };
   }
 
   const payload = args.payload ?? null;
@@ -136,6 +174,7 @@ export async function handleTimerCreate(c: Context, bazaarExtensions: Record<str
     mode: plan.mode,
     callbackUrl: plan.callbackUrl,
     payload: plan.payload,
+    action: plan.action,
     fireAt: plan.fireAt,
     createdAt: Date.now(),
     status: 'pending',
@@ -144,17 +183,19 @@ export async function handleTimerCreate(c: Context, bazaarExtensions: Record<str
   };
   await putTimer(rec);
 
+  const kind = rec.action ? `action ${rec.action.method} ${rec.action.url}` : rec.mode;
   return c.json(
     {
       content: [
         {
           type: 'text',
-          text: `Timer ${rec.id} scheduled (${rec.mode}) for ${new Date(rec.fireAt).toISOString()}.`
+          text: `Timer ${rec.id} scheduled (${kind}) for ${new Date(rec.fireAt).toISOString()}.`
         }
       ],
       timer: {
         id: rec.id,
         mode: rec.mode,
+        kind: rec.action ? 'action' : 'payload',
         fire_at: Math.round(rec.fireAt / 1000),
         status: rec.status,
         poll_url: `${config.publicUrl}/agent-timer/${rec.id}`
@@ -181,11 +222,14 @@ export async function handleTimerPoll(c: Context) {
   return c.json({
     id: rec.id,
     mode: rec.mode,
+    kind: rec.action ? 'action' : 'payload',
     status: rec.status,
     fire_at: Math.round(rec.fireAt / 1000),
     ready: fired,
-    // payload only surfaced for poll-mode timers once they've fired
-    payload: rec.mode === 'poll' && fired ? rec.payload : undefined,
+    // poll-mode payload, surfaced once fired
+    payload: rec.action ? undefined : rec.mode === 'poll' && fired ? rec.payload : undefined,
+    // action result (captured HTTP response), surfaced once executed
+    action_result: rec.action && fired ? rec.actionResult : undefined,
     delivered_at: rec.deliveredAt ? Math.round(rec.deliveredAt / 1000) : undefined,
     delivery_status_code: rec.deliveryStatusCode,
     last_error: rec.lastError

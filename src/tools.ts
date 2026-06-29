@@ -8,7 +8,7 @@ export const TOOL_DESCRIPTION =
   'Executes fetch on any public URL, strips scripts/ads/nav noise, and returns compressed semantic Markdown optimized for LLM token ingestion.';
 
 export const TIMER_TOOL_DESCRIPTION =
-  'Schedule a future callback for autonomous agents. Register a JSON payload to be delivered to your HTTPS callback URL (push) or held for retrieval (poll) after a delay or at a set time. Lets agent loops wait on external events without holding compute open or burning tokens on busy-polling.';
+  'Schedule a future HTTP action or callback for autonomous agents. At a delay or a set time, either (a) execute an HTTP request you specify (method/url/headers/body) and capture the response for retrieval, or (b) deliver a JSON payload to your HTTPS callback URL (push) / hold it for polling. Lets agent loops defer and fire web actions without staying online or busy-polling.';
 
 /** What the stealth tier can actually do right now, based on what is provisioned. */
 export function stealthCapabilities(): { proxy: boolean; captcha: boolean } {

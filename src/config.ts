@@ -29,6 +29,7 @@ export interface TimerConfig {
   minDelaySeconds: number;
   maxDelaySeconds: number;
   maxPayloadBytes: number;
+  maxResponseBytes: number;
   pollRetentionSeconds: number;
   maxDeliveryAttempts: number;
 }
@@ -197,6 +198,7 @@ export const config: AppConfig = {
     minDelaySeconds: envInt('TIMER_MIN_DELAY_SECONDS', 5),
     maxDelaySeconds: envInt('TIMER_MAX_DELAY_SECONDS', 7 * 24 * 3600),
     maxPayloadBytes: envInt('TIMER_MAX_PAYLOAD_BYTES', 16_384),
+    maxResponseBytes: envInt('TIMER_MAX_RESPONSE_BYTES', 65_536),
     pollRetentionSeconds: envInt('TIMER_POLL_RETENTION_SECONDS', 3600),
     maxDeliveryAttempts: envInt('TIMER_MAX_DELIVERY_ATTEMPTS', 3)
   }
