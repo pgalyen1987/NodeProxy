@@ -38,7 +38,16 @@ import {
 // HTTP-type discovery extensions: the Bazaar crawler POSTs the example body to the
 // resource URL and only indexes endpoints that answer 402. (MCP-type extensions —
 // passing toolName — are not probed and never index.)
-const standardBazaar = declareDiscoveryExtension({
+//
+// NB: `method` is REQUIRED — the SDK's runtime and CDP's validateDiscoveryExtension
+// both require info.input.method, but the SDK's TypeScript type wrongly omits it
+// (DistributiveOmit<..., "method">). Pass it through this cast helper or the
+// extension fails validation and CDP silently refuses to index the resource.
+const declareHttpDiscovery = (cfg: Record<string, unknown>): Record<string, unknown> =>
+  declareDiscoveryExtension(cfg as never);
+
+const standardBazaar = declareHttpDiscovery({
+  method: 'POST',
   bodyType: 'json',
   input: { tool: TOOL_NAME, arguments: { url: 'https://example.com' } },
   inputSchema: {
@@ -54,7 +63,8 @@ const standardBazaar = declareDiscoveryExtension({
   }
 });
 
-const stealthBazaar = declareDiscoveryExtension({
+const stealthBazaar = declareHttpDiscovery({
+  method: 'POST',
   bodyType: 'json',
   input: { tool: STEALTH_TOOL_NAME, arguments: { url: 'https://example.com' } },
   inputSchema: {
@@ -70,7 +80,8 @@ const stealthBazaar = declareDiscoveryExtension({
   }
 });
 
-const timerBazaar = declareDiscoveryExtension({
+const timerBazaar = declareHttpDiscovery({
+  method: 'POST',
   bodyType: 'json',
   input: { arguments: { delay_seconds: 60, action: { method: 'POST', url: 'https://example.com/hook', body: {} } } },
   inputSchema: {
@@ -95,7 +106,8 @@ const timerBazaar = declareDiscoveryExtension({
   }
 });
 
-const inboxBazaar = declareDiscoveryExtension({
+const inboxBazaar = declareHttpDiscovery({
+  method: 'POST',
   bodyType: 'json',
   input: { arguments: {} },
   inputSchema: { type: 'object', properties: { arguments: { type: 'object' } } },
@@ -104,7 +116,8 @@ const inboxBazaar = declareDiscoveryExtension({
   }
 });
 
-const lockBazaar = declareDiscoveryExtension({
+const lockBazaar = declareHttpDiscovery({
+  method: 'POST',
   bodyType: 'json',
   input: { arguments: { op: 'check', key: 'job:42' } },
   inputSchema: {
@@ -126,7 +139,8 @@ const lockBazaar = declareDiscoveryExtension({
   output: { example: { lock: { op: 'claim', key: 'job:42', acquired: true, token: 'c3…' } } }
 });
 
-const secretBazaar = declareDiscoveryExtension({
+const secretBazaar = declareHttpDiscovery({
+  method: 'POST',
   bodyType: 'json',
   input: { arguments: { op: 'store', secret: 'value' } },
   inputSchema: {
