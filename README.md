@@ -231,3 +231,7 @@ markdown = tool.invoke({"url": "https://example.com"})
 ## License
 
 MIT
+
+## Part of Gate402
+
+This service is part of the [Gate402](https://gate402.app) x402 agent-API suite — pay-per-call APIs for AI agents over HTTP 402 (USDC on Base). Use it standalone, through the unified storefront + CDP x402 Bazaar at [gate402.app](https://gate402.app), or as an MCP server: `npx -y gate402-mcp`.
