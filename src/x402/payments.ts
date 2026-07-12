@@ -2,10 +2,10 @@ import { x402ResourceServer, type HTTPRequestContext } from '@x402/core/server';
 import { x402HTTPResourceServer } from '@x402/core/http';
 import {
   decodePaymentSignatureHeader,
-  encodePaymentRequiredHeader,
-  encodePaymentResponseHeader
+  encodePaymentRequiredHeader
 } from '@x402/core/http';
-import type { PaymentPayload, PaymentRequirements } from '@x402/core/types';
+import type { PaymentPayload, PaymentRequired, PaymentRequirements } from '@x402/core/types';
+import type { PaymentRequirementsV1 } from '@x402/core/types/v1';
 import { ExactEvmScheme } from '@x402/evm/exact/server';
 import { ExactSvmScheme } from '@x402/svm/exact/server';
 import { bazaarResourceServerExtension } from '@x402/extensions/bazaar';
@@ -14,9 +14,28 @@ import { descriptionForTool, type ToolName } from '../tools.js';
 import { buildFacilitatorClients } from './facilitators.js';
 import { networkPaymentOptions } from './networks.js';
 import { parsePaymentHints, resolvePayment, type PaymentHints, toPaymentSummary } from './negotiate.js';
+import {
+  payloadNetwork,
+  settleResponseHeaders,
+  toV1PaymentRequired,
+  toV1Requirements
+} from './v1.js';
 
 export type { PaymentHints, ResolvedPayment } from './negotiate.js';
 export { parsePaymentHints, resolvePayment, toPaymentSummary };
+export { extractPaymentHeader, toV1PaymentRequired } from './v1.js';
+
+/** Dual-protocol 402 body: top-level v1 + nested v2 under `x402`. */
+export function paymentRequiredBody(
+  paymentRequiredV2: PaymentRequired,
+  extras: Record<string, unknown> = {}
+): Record<string, unknown> {
+  return {
+    ...toV1PaymentRequired(paymentRequiredV2),
+    ...extras,
+    x402: paymentRequiredV2
+  };
+}
 
 function buildFacilitatorClient() {
   return buildFacilitatorClients(config.facilitatorUrl);
@@ -59,6 +78,30 @@ export function decodePaymentHeader(header?: string | null): PaymentPayload | nu
   }
 }
 
+function matchRequirement(
+  requirements: PaymentRequirements[],
+  payload: PaymentPayload,
+  resourceInfo: { url?: string; description?: string; mimeType?: string }
+): PaymentRequirements | PaymentRequirementsV1 | null {
+  if (payload.x402Version === 2) {
+    return (
+      resourceServer.findMatchingRequirements(requirements, payload) ||
+      requirements.find((r) => r.network === payload.accepted?.network) ||
+      requirements[0] ||
+      null
+    );
+  }
+  if (payload.x402Version === 1) {
+    const v1Reqs = requirements
+      .map((r) => toV1Requirements(r, resourceInfo))
+      .filter((r): r is PaymentRequirementsV1 => r != null);
+    const scheme = (payload as { scheme?: string }).scheme;
+    const network = (payload as { network?: string }).network;
+    return v1Reqs.find((r) => r.scheme === scheme && r.network === network) || v1Reqs[0] || null;
+  }
+  return null;
+}
+
 export async function buildAllToolRequirements(
   context: HTTPRequestContext,
   priceUsdc = config.priceUsdc
@@ -98,11 +141,12 @@ export async function createToolPaymentChallenge(
   const amount = priceUsdc ?? (tool === 'stealth_markdown_parser' ? config.stealth.priceUsdc : config.priceUsdc);
   const resolvedHints = hints ?? parsePaymentHints(context);
   const requirements = await buildToolRequirements(context, resolvedHints, amount);
+  const description = descriptionForTool(tool);
   const paymentRequired = await resourceServer.createPaymentRequiredResponse(
     requirements,
     {
       url: resourceUrl,
-      description: descriptionForTool(tool),
+      description,
       mimeType: 'application/json',
       serviceName: config.serviceName,
       tags: config.serviceTags
@@ -115,9 +159,11 @@ export async function createToolPaymentChallenge(
   const resolved = await resolvePayment(resolvedHints, amount);
   return {
     paymentRequired,
+    paymentRequiredV1: toV1PaymentRequired(paymentRequired),
     requirements,
     payment: toPaymentSummary(resolved),
-    mode: resolvedHints.mode
+    mode: resolvedHints.mode,
+    resourceInfo: { url: resourceUrl, description, mimeType: 'application/json' }
   };
 }
 
@@ -125,20 +171,22 @@ export async function verifyAndSettleToolPayment(
   context: HTTPRequestContext,
   paymentHeader: string,
   requirements: PaymentRequirements[],
-  transportHeaders?: Record<string, string>
+  transportHeaders?: Record<string, string>,
+  resourceInfo: { url?: string; description?: string; mimeType?: string } = {}
 ) {
   const payload = decodePaymentHeader(paymentHeader);
   if (!payload) {
-    return { ok: false as const, status: 402, message: 'Invalid PAYMENT-SIGNATURE header' };
+    return { ok: false as const, status: 402, message: 'Invalid PAYMENT-SIGNATURE / X-PAYMENT header' };
   }
 
-  const requirement =
-    resourceServer.findMatchingRequirements(requirements, payload) ||
-    requirements[0];
+  const requirement = matchRequirement(requirements, payload, resourceInfo);
+  if (!requirement) {
+    return { ok: false as const, status: 402, message: 'No matching payment requirements for payload' };
+  }
 
   let verify;
   try {
-    verify = await resourceServer.verifyPayment(payload, requirement, undefined, context);
+    verify = await resourceServer.verifyPayment(payload, requirement as PaymentRequirements, undefined, context);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Payment verification failed';
     return { ok: false as const, status: 402, message };
@@ -152,10 +200,15 @@ export async function verifyAndSettleToolPayment(
     };
   }
 
-  const settle = await httpResourceServer.processSettlement(payload, requirement, undefined, {
-    request: context,
-    responseHeaders: transportHeaders
-  });
+  const settle = await httpResourceServer.processSettlement(
+    payload,
+    requirement as PaymentRequirements,
+    undefined,
+    {
+      request: context,
+      responseHeaders: transportHeaders
+    }
+  );
 
   if (!settle.success) {
     return {
@@ -169,10 +222,10 @@ export async function verifyAndSettleToolPayment(
     ok: true as const,
     headers: {
       ...settle.headers,
-      'PAYMENT-RESPONSE': encodePaymentResponseHeader(settle)
+      ...settleResponseHeaders(settle)
     },
     transaction: settle.transaction,
-    network: payload.accepted.network
+    network: payloadNetwork(payload) || ''
   };
 }
 

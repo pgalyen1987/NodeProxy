@@ -9,7 +9,9 @@ import {
   parsePaymentHints,
   releaseProof,
   verifyAndSettleToolPayment,
-  buildAllToolRequirements
+  buildAllToolRequirements,
+  extractPaymentHeader,
+  paymentRequiredBody
 } from '../x402/payments.js';
 import { buildRequestContext } from '../http/context.js';
 import { isRateLimited, rateLimitKey } from '../lib/guards.js';
@@ -121,7 +123,7 @@ export async function handleTimerCreate(c: Context, bazaarExtensions: Record<str
   const priceUsdc = priceForTool(TIMER_TOOL_NAME);
   const context = buildRequestContext(c);
   const resourceUrl = `${config.publicUrl}/agent-timer`;
-  const signature = c.req.header('payment-signature') || c.req.header('PAYMENT-SIGNATURE');
+  const signature = extractPaymentHeader((n) => c.req.header(n));
   const paymentHints = parsePaymentHints(context, body as Record<string, unknown>);
 
   // Unpaid requests MUST get a 402 before body validation (Bazaar probe requirement).
@@ -135,14 +137,12 @@ export async function handleTimerCreate(c: Context, bazaarExtensions: Record<str
       priceUsdc
     );
     return c.json(
-      {
-        ...challenge.paymentRequired,
-        message: 'Valid x402 PAYMENT-SIGNATURE required.',
+      paymentRequiredBody(challenge.paymentRequired, {
+        message: 'Valid x402 PAYMENT-SIGNATURE or X-PAYMENT required.',
         tool: TIMER_TOOL_NAME,
         priceUsdc,
-        payment: challenge.payment,
-        x402: challenge.paymentRequired
-      },
+        payment: challenge.payment
+      }),
       402,
       { 'PAYMENT-REQUIRED': encodePaymentRequiredHeader(challenge.paymentRequired) }
     );

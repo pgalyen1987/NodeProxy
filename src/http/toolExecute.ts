@@ -8,7 +8,9 @@ import {
   parsePaymentHints,
   releaseProof,
   verifyAndSettleToolPayment,
-  buildAllToolRequirements
+  buildAllToolRequirements,
+  extractPaymentHeader,
+  paymentRequiredBody
 } from '../x402/payments.js';
 import { buildRequestContext } from './context.js';
 import { isRateLimited, rateLimitKey } from '../lib/guards.js';
@@ -39,7 +41,7 @@ export async function handleToolExecute(c: Context, body: { arguments?: { url?: 
   const priceUsdc = priceForTool(options.tool);
   const context = buildRequestContext(c);
   const resourceUrl = `${config.publicUrl}${options.resourcePath}`;
-  const signature = c.req.header('payment-signature') || c.req.header('PAYMENT-SIGNATURE');
+  const signature = extractPaymentHeader((n) => c.req.header(n));
   const mppAuth = c.req.header('authorization') || c.req.header('Authorization');
   const paymentHints = parsePaymentHints(context, body as Record<string, unknown>);
   const useMpp = Boolean(options.allowMpp && isMppEnabled() && hasMppCredential(c.req.raw));
@@ -68,17 +70,15 @@ export async function handleToolExecute(c: Context, body: { arguments?: { url?: 
       paymentHints,
       priceUsdc
     );
-    const payload: Record<string, unknown> = {
-      ...challenge.paymentRequired,
+    const payload: Record<string, unknown> = paymentRequiredBody(challenge.paymentRequired, {
       message:
         options.allowMpp && isMppEnabled()
-          ? 'Pay with x402 (PAYMENT-SIGNATURE) or Stripe MPP (Authorization: Payment …).'
-          : 'Valid x402 PAYMENT-SIGNATURE required.',
+          ? 'Pay with x402 (PAYMENT-SIGNATURE / X-PAYMENT) or Stripe MPP (Authorization: Payment …).'
+          : 'Valid x402 PAYMENT-SIGNATURE or X-PAYMENT required.',
       tool: options.tool,
       priceUsdc,
-      payment: challenge.payment,
-      x402: challenge.paymentRequired
-    };
+      payment: challenge.payment
+    });
     const headers: Record<string, string> = {
       'PAYMENT-REQUIRED': encodePaymentRequiredHeader(challenge.paymentRequired)
     };

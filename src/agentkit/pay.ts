@@ -8,7 +8,9 @@ import {
   parsePaymentHints,
   releaseProof,
   verifyAndSettleToolPayment,
-  buildAllToolRequirements
+  buildAllToolRequirements,
+  extractPaymentHeader,
+  paymentRequiredBody
 } from '../x402/payments.js';
 import { buildRequestContext } from '../http/context.js';
 import { isRateLimited, rateLimitKey } from '../lib/guards.js';
@@ -45,7 +47,7 @@ export async function gateX402(
   await ensureX402Ready();
   const priceUsdc = priceForTool(opts.tool);
   const context = buildRequestContext(c);
-  const signature = c.req.header('payment-signature') || c.req.header('PAYMENT-SIGNATURE');
+  const signature = extractPaymentHeader((n) => c.req.header(n));
 
   if (!signature) {
     return emitChallenge(c, opts);
@@ -101,14 +103,12 @@ export async function emitChallenge(c: Context, opts: GateOptions): Promise<Resp
     priceUsdc
   );
   return c.json(
-    {
-      ...challenge.paymentRequired,
-      message: 'Pay with x402 (PAYMENT-SIGNATURE header) to call this resource.',
+    paymentRequiredBody(challenge.paymentRequired, {
+      message: 'Pay with x402 (PAYMENT-SIGNATURE or X-PAYMENT) to call this resource.',
       tool: opts.tool,
       priceUsdc,
-      payment: challenge.payment,
-      x402: challenge.paymentRequired
-    },
+      payment: challenge.payment
+    }),
     402,
     { 'PAYMENT-REQUIRED': encodePaymentRequiredHeader(challenge.paymentRequired) }
   );
