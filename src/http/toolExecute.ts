@@ -69,7 +69,7 @@ export async function handleToolExecute(c: Context, body: { arguments?: { url?: 
       priceUsdc
     );
     const payload: Record<string, unknown> = {
-      error: 'Payment Required',
+      ...challenge.paymentRequired,
       message:
         options.allowMpp && isMppEnabled()
           ? 'Pay with x402 (PAYMENT-SIGNATURE) or Stripe MPP (Authorization: Payment …).'

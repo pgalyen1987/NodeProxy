@@ -136,7 +136,7 @@ export async function handleTimerCreate(c: Context, bazaarExtensions: Record<str
     );
     return c.json(
       {
-        error: 'Payment Required',
+        ...challenge.paymentRequired,
         message: 'Valid x402 PAYMENT-SIGNATURE required.',
         tool: TIMER_TOOL_NAME,
         priceUsdc,

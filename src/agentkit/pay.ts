@@ -102,7 +102,7 @@ export async function emitChallenge(c: Context, opts: GateOptions): Promise<Resp
   );
   return c.json(
     {
-      error: 'Payment Required',
+      ...challenge.paymentRequired,
       message: 'Pay with x402 (PAYMENT-SIGNATURE header) to call this resource.',
       tool: opts.tool,
       priceUsdc,
