@@ -6,10 +6,36 @@ import { closePlaywrightBrowser } from './parser/playwrightFetch.js';
 import { closeStealthBrowser } from './parser/stealthFetch.js';
 import { closeParseCache } from './lib/parseCache.js';
 
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+
+/**
+ * Fail-closed guard that a real EVM payout wallet is configured. In production an
+ * unset, zero (burn), or malformed WALLET_ADDRESS throws — so USDC is never
+ * settled to an unrecoverable address; in dev it warns. Skipped when no EVM
+ * (eip155:*) network is quoted.
+ */
+function assertWalletConfigured(): void {
+  const hasEvmNetwork = config.networks.some((n) => String(n).startsWith('eip155:'));
+  if (!hasEvmNetwork) return;
+
+  const evm = (config.walletAddress || '').trim();
+  const reason = !evm
+    ? 'unset'
+    : evm.toLowerCase() === ZERO_ADDRESS
+      ? 'the zero (burn) address'
+      : !EVM_ADDRESS_RE.test(evm)
+        ? 'not a valid EVM address'
+        : null;
+  if (!reason) return;
+
+  const msg = `nodeproxy: WALLET_ADDRESS is ${reason} — USDC would be lost, refusing to serve paid requests`;
+  if (process.env.NODE_ENV === 'production') throw new Error(msg);
+  console.warn(`[nodeproxy] ${msg} (continuing in dev)`);
+}
+
 async function main() {
-  if (!config.walletAddress) {
-    console.warn('[nodeproxy] WALLET_ADDRESS is unset — set it before production deploy');
-  }
+  assertWalletConfigured();
 
   await ensureX402Ready();
   const app = createHttpApp();
