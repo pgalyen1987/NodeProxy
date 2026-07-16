@@ -2,6 +2,27 @@ import { chromium, type Browser, type BrowserContext } from 'playwright';
 import { config } from '../config.js';
 import { detectBotBlock } from './botDetect.js';
 import { solveCaptcha } from './captchaSolver.js';
+import { fetchViaScrapeDo, scrapeDoEnabled } from './scrapeDoFetch.js';
+
+function titleFromHtml(html: string): string {
+  return html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() || '';
+}
+
+// scrape.do returns the *final* rendered page, which for Cloudflare-fronted
+// sites legitimately still embeds the turnstile widget script — so the broad
+// detectBotBlock() would false-positive. Only treat the response as a failed
+// unlock if it's an actual challenge interstitial: a block title, or a tiny
+// body that is essentially just the Cloudflare challenge shell.
+function isChallengeInterstitial(html: string): boolean {
+  const title = titleFromHtml(html).toLowerCase();
+  if (/just a moment|attention required|checking your browser|verify you are (?:human|a human)|access denied|forbidden/.test(title)) {
+    return true;
+  }
+  return (
+    html.length < 15_000 &&
+    /cf-browser-verification|cdn-cgi\/challenge-platform|_cf_chl_opt|window\._cf_chl/i.test(html)
+  );
+}
 
 let stealthBrowser: Browser | null = null;
 let stealthBrowserInit: Promise<Browser> | null = null;
@@ -96,6 +117,20 @@ export interface StealthFetchResult {
 }
 
 export async function fetchStealthHtml(url: string): Promise<StealthFetchResult> {
+  // Primary path: managed unlocker (scrape.do) — residential proxies + JS
+  // render + CAPTCHA solved server-side. Only fall through to local Playwright
+  // if the token is unset or scrape.do fails/returns a challenge page.
+  if (scrapeDoEnabled()) {
+    try {
+      const { html } = await fetchViaScrapeDo(url);
+      if (!isChallengeInterstitial(html)) {
+        return { html, proxyUsed: true, captchaSolved: true, attempts: 1 };
+      }
+    } catch {
+      /* fall through to local Playwright */
+    }
+  }
+
   const browser = await getStealthBrowser();
   let lastError: Error | null = null;
   let captchaSolved = false;

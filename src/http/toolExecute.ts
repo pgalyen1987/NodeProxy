@@ -148,7 +148,7 @@ export async function handleToolExecute(c: Context, body: { arguments?: { url?: 
     tool: options.tool,
     priceUsdc,
     rail: 'x402',
-    caller: settled.network
+    caller: settled.payer || settled.network
   });
 
   try {

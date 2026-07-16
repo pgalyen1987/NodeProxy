@@ -172,7 +172,7 @@ export async function handleTimerCreate(c: Context, bazaarExtensions: Record<str
     tool: TIMER_TOOL_NAME,
     priceUsdc,
     rail: 'x402',
-    caller: settled.network
+    caller: settled.payer || settled.network
   });
 
   const rec: TimerRecord = {

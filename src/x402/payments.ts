@@ -225,7 +225,8 @@ export async function verifyAndSettleToolPayment(
       ...settleResponseHeaders(settle)
     },
     transaction: settle.transaction,
-    network: payloadNetwork(payload) || ''
+    network: payloadNetwork(payload) || '',
+    payer: settle.payer
   };
 }
 

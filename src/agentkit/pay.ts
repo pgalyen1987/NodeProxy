@@ -69,7 +69,7 @@ export async function gateX402(
     tool: opts.tool,
     priceUsdc,
     rail: 'x402',
-    caller: settled.network
+    caller: settled.payer || settled.network
   });
 
   try {

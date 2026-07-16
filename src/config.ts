@@ -22,6 +22,13 @@ export interface StealthConfig {
   captchaSolverKey: string;
   captchaSolverProvider: '2captcha' | 'none';
   maxFetchAttempts: number;
+  // Managed unlocker (scrape.do): server-side residential proxies + JS render +
+  // CAPTCHA solving. When a token is set it becomes the primary stealth fetch,
+  // with local Playwright as fallback.
+  scrapeDoToken: string;
+  scrapeDoRender: boolean;
+  scrapeDoSuper: boolean;
+  scrapeDoGeo: string;
 }
 
 export interface TimerConfig {
@@ -107,6 +114,12 @@ function envFloat(name: string, fallback: number): number {
   if (!raw) return fallback;
   const n = parseFloat(raw);
   return Number.isFinite(n) ? n : fallback;
+}
+
+function envBool(name: string, fallback: boolean): boolean {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (raw === undefined || raw === '') return fallback;
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
 }
 
 function resolvePublicUrl(): string {
@@ -212,7 +225,11 @@ export const config: AppConfig = {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
     captchaSolverKey: process.env.CAPTCHA_SOLVER_KEY?.trim() || process.env.TWO_CAPTCHA_KEY?.trim() || '',
     captchaSolverProvider: process.env.CAPTCHA_SOLVER_KEY || process.env.TWO_CAPTCHA_KEY ? '2captcha' : 'none',
-    maxFetchAttempts: envInt('STEALTH_MAX_ATTEMPTS', 2)
+    maxFetchAttempts: envInt('STEALTH_MAX_ATTEMPTS', 2),
+    scrapeDoToken: process.env.SCRAPE_DO_TOKEN?.trim() || process.env.SCRAPEDO_TOKEN?.trim() || '',
+    scrapeDoRender: envBool('SCRAPE_DO_RENDER', true),
+    scrapeDoSuper: envBool('SCRAPE_DO_SUPER', true),
+    scrapeDoGeo: process.env.SCRAPE_DO_GEO?.trim() || ''
   },
   timer: {
     priceUsdc: envFloat('TIMER_PRICE_USDC', 0.001),
